@@ -288,10 +288,10 @@ consume_fun(Id, Mod, Fun, BackendIndex, BackendMessage) ->
              ok).
 defer_consume(Id, Type, MaxTime, MinTime) ->
     Time0 = random:uniform(MaxTime),
-    case (Time0 < MinTime) of
-        true  -> Time1 = MinTime;
-        false -> Time1 = Time0
-    end,
+    Time1 = case (Time0 < MinTime) of
+                true  -> MinTime;
+                false -> Time0
+            end,
 
     timer:apply_after(Time1, ?MODULE, consume, [Id, Type]).
 
@@ -338,10 +338,10 @@ put_message(MsgKeyBin, {MsgId, _MsgBin} = MsgTuple, #state{backend_index   = Bac
 -spec(backend_db_info(atom(), string()) ->
              list()).
 backend_db_info(Id, RootPath) ->
-    case (string:len(RootPath) == string:rstr(RootPath, "/")) of
-        true  -> NewRootPath = RootPath;
-        false -> NewRootPath = RootPath ++ "/"
-    end,
+    NewRootPath = case (string:len(RootPath) == string:rstr(RootPath, "/")) of
+                      true  -> RootPath;
+                      false ->  RootPath ++ "/"
+                  end,
 
     MQDBIndexPath   = NewRootPath ++ ?DEF_DB_PATH_INDEX,
     MQDBMessagePath = NewRootPath ++ ?DEF_DB_PATH_MESSAGE,
