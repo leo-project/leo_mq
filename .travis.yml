@@ -1,5 +1,4 @@
 language: erlang
-script: "make && make eunit"
 notifications:
   email: false
 otp_release:
