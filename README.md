@@ -10,3 +10,4 @@ Overview
   * [rebar](https://github.com/basho/rebar)
 * "leo_mq" requires Erlang R14B04 or later.
 
+[![Build Status](https://secure.travis-ci.org/leo-project/leo_mq.png?branch=master)](http://travis-ci.org/leo-project/leo_mq)
