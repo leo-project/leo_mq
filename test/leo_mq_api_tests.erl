@@ -26,7 +26,7 @@
 %%====================================================================
 -module(leo_mq_api_tests).
 -author('yosuke hara').
--vsn('0.9.0').
+-vsn('0.9.1').
 
 -include("leo_mq.hrl").
 -include_lib("eunit/include/eunit.hrl").
