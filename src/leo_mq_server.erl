@@ -159,7 +159,6 @@ handle_call(stop, _From, State) ->
 %% @doc Publish - Msg:"REPLICATE DATA".
 %%
 handle_cast({publish, KeyBin, MessageBin}, State) ->
-    error_logger:info_msg("~w,~w~n", [?MODULE, publish]),
     catch put_message(KeyBin, {leo_utils:clock(), MessageBin}, State),
 
     NewState = maybe_consume(State),
@@ -258,8 +257,6 @@ consume_fun(Id, Mod, Fun, BackendIndex, BackendMessage) ->
             {ok, {K0, V0}} ->
                 case leo_mq_backend_db:get(BackendMessage, V0) of
                     {ok, V1} ->
-                        error_logger:info_msg("~w,~w,~p~n", [?MODULE, consume, V0]),
-
                         {_, MsgBin} = binary_to_term(V1),
 
                         catch erlang:apply(Mod, Fun, [Id, MsgBin]),
@@ -312,7 +309,6 @@ put_message(MsgKeyBin, {MsgId, _MsgBin} = MsgTuple, #state{backend_index   = Bac
                     ok ->
                         case leo_mq_backend_db:put(BackendMessage, MsgKeyBin, MessageBin) of
                             ok ->
-                                error_logger:info_msg("~w,~w,~p~n", [?MODULE, put_message, {MsgId, binary_to_list(MsgKeyBin)}]),
                                 ok;
                             Error ->
                                 leo_mq_backend_db:delete(BackendIndex, MsgIdBin),
