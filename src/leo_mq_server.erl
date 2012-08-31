@@ -48,7 +48,7 @@
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
 -else.
--define(CURRENT_TIME, leo_utils:now()).
+-define(CURRENT_TIME, leo_date:now()).
 -endif.
 
 -define(DEF_DB_PATH_INDEX,   "index"  ).
@@ -159,7 +159,7 @@ handle_call(stop, _From, State) ->
 %% @doc Publish - Msg:"REPLICATE DATA".
 %%
 handle_cast({publish, KeyBin, MessageBin}, State) ->
-    catch put_message(KeyBin, {leo_utils:clock(), MessageBin}, State),
+    catch put_message(KeyBin, {leo_date:clock(), MessageBin}, State),
 
     NewState = maybe_consume(State),
     {noreply, NewState};
