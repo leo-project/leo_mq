@@ -26,7 +26,6 @@
 -module(leo_mq_api).
 
 -author('Yosuke Hara').
--vsn('0.9.1').
 
 -include("leo_mq.hrl").
 -include_lib("eunit/include/eunit.hrl").

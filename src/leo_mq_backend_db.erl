@@ -26,7 +26,6 @@
 -module(leo_mq_backend_db).
 
 -author('Yosuke Hara').
--vsn('0.9.1').
 
 -export([start/4, get/2, put/3, delete/2, first/1, status/1]).
 -type(backend_db() :: bitcask | leveldb).
