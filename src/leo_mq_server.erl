@@ -119,10 +119,8 @@ init([Id, #mq_properties{module       = Mod,
     [{MQDBIndexPath,   MQDBIndexId},
      {MQDBMessagePath, MQDBMessageId}] = backend_db_info(Id, RootPath),
 
-    Res0 = leo_mq_backend_db:start(MQDBIndexId,   DBProcs, DBName, MQDBIndexPath),
-    Res1 = leo_mq_backend_db:start(MQDBMessageId, DBProcs, DBName, MQDBMessagePath),
-
-    %% Id = ets:new(Id, [named_table, public, {read_concurrency, true}]),
+    Res0 = leo_backend_db_api:new(MQDBIndexId,   DBProcs, DBName, MQDBIndexPath),
+    Res1 = leo_backend_db_api:new(MQDBMessageId, DBProcs, DBName, MQDBMessagePath),
 
     case (Res0 == ok andalso Res1 == ok) of
         true ->
@@ -140,8 +138,8 @@ init([Id, #mq_properties{module       = Mod,
 
 handle_call({status}, _From, #state{backend_index   = MQDBIndexId,
                                     backend_message = MQDBMessageId} = State) ->
-    Res0 = leo_mq_backend_db:status(MQDBIndexId),
-    Res1 = leo_mq_backend_db:status(MQDBMessageId),
+    Res0 = leo_backend_db_api:status(MQDBIndexId),
+    Res1 = leo_backend_db_api:status(MQDBMessageId),
 
     Count0 = lists:foldl(fun([{key_count, KC0}, _], Acc0) -> Acc0 + KC0;
                             (_, Acc0) -> Acc0
@@ -252,15 +250,15 @@ maybe_consume(#state{id = Id,
              ok | {error, any()}).
 consume_fun(Id, Mod, Fun, BackendIndex, BackendMessage) ->
     try
-        case leo_mq_backend_db:first(BackendIndex) of
+        case leo_backend_db_api:first(BackendIndex) of
             {ok, {K0, V0}} ->
-                case leo_mq_backend_db:get(BackendMessage, V0) of
+                case leo_backend_db_api:get(BackendMessage, V0) of
                     {ok, V1} ->
                         {_, MsgBin} = binary_to_term(V1),
 
                         catch erlang:apply(Mod, Fun, [Id, MsgBin]),
-                        catch leo_mq_backend_db:delete(BackendIndex,   K0),
-                        catch leo_mq_backend_db:delete(BackendMessage, V0),
+                        catch leo_backend_db_api:delete(BackendIndex,   K0),
+                        catch leo_backend_db_api:delete(BackendMessage, V0),
                         ok;
                     not_found = Cause ->
                         {error, Cause};
@@ -302,15 +300,15 @@ put_message(MsgKeyBin, {MsgId, _MsgBin} = MsgTuple, #state{backend_index   = Bac
     MessageBin = term_to_binary(MsgTuple),
 
     try
-        case leo_mq_backend_db:get(BackendMessage, MsgKeyBin) of
+        case leo_backend_db_api:get(BackendMessage, MsgKeyBin) of
             not_found ->
-                case leo_mq_backend_db:put(BackendIndex, MsgIdBin, MsgKeyBin) of
+                case leo_backend_db_api:put(BackendIndex, MsgIdBin, MsgKeyBin) of
                     ok ->
-                        case leo_mq_backend_db:put(BackendMessage, MsgKeyBin, MessageBin) of
+                        case leo_backend_db_api:put(BackendMessage, MsgKeyBin, MessageBin) of
                             ok ->
                                 ok;
                             Error ->
-                                leo_mq_backend_db:delete(BackendIndex, MsgIdBin),
+                                leo_backend_db_api:delete(BackendIndex, MsgIdBin),
                                 Error
                         end;
                     Error ->
