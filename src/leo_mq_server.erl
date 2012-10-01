@@ -152,9 +152,10 @@ handle_call(stop, _From, State) ->
 
 %% @doc Publish - Msg:"REPLICATE DATA".
 %%
-handle_cast({publish, KeyBin, MessageBin}, State = #state{module = Mod}) ->
+handle_cast({publish, KeyBin, MessageBin}, State = #state{id     = Id,
+                                                          module = Mod}) ->
     Reply = put_message(KeyBin, {leo_date:clock(), MessageBin}, State),
-    catch erlang:apply(Mod, handle_call, [publish, Reply]),
+    catch erlang:apply(Mod, handle_call, [{publish, Id, Reply}]),
 
     NewState = maybe_consume(State),
     {noreply, NewState};
@@ -252,7 +253,7 @@ consume_fun(Id, Mod, BackendIndex, BackendMessage) ->
                     {ok, V1} ->
                         {_, MsgBin} = binary_to_term(V1),
 
-                        catch erlang:apply(Mod, handle_call, [consume, Id, MsgBin]),
+                        catch erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
                         catch leo_backend_db_api:delete(BackendIndex,   K0),
                         catch leo_backend_db_api:delete(BackendMessage, V0),
                         ok;
