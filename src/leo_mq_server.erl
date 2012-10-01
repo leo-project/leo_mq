@@ -59,7 +59,6 @@
 
 -record(state, {id                 :: atom(),
                 module             :: atom(),
-                function           :: atom(),
                 max_interval       :: integer(),
                 min_interval       :: integer(),
                 backend_index      :: atom(),
@@ -110,7 +109,6 @@ status(Id) ->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 init([Id, #mq_properties{module       = Mod,
-                         function     = Fun,
                          db_name      = DBName,
                          db_procs     = DBProcs,
                          root_path    = RootPath,
@@ -127,7 +125,6 @@ init([Id, #mq_properties{module       = Mod,
             defer_consume(Id, ?CONSUME_REGULAR, MaxInterval, MinInterval),
             {ok, #state{id              = Id,
                         module          = Mod,
-                        function        = Fun,
                         max_interval    = MaxInterval,
                         min_interval    = MinInterval,
                         backend_index   = MQDBIndexId,
@@ -155,8 +152,9 @@ handle_call(stop, _From, State) ->
 
 %% @doc Publish - Msg:"REPLICATE DATA".
 %%
-handle_cast({publish, KeyBin, MessageBin}, State) ->
-    catch put_message(KeyBin, {leo_date:clock(), MessageBin}, State),
+handle_cast({publish, KeyBin, MessageBin}, State = #state{module = Mod}) ->
+    Reply = put_message(KeyBin, {leo_date:clock(), MessageBin}, State),
+    catch erlang:apply(Mod, handle_call, [publish, Reply]),
 
     NewState = maybe_consume(State),
     {noreply, NewState};
@@ -176,12 +174,11 @@ handle_cast({consume, ?CONSUME_REGULAR}, State) ->
 
 handle_cast({consume, ?CONSUME_FORCE}, #state{id       = Id,
                                               module   = Mod,
-                                              function = Fun,
                                               max_interval    = MaxInterval,
                                               min_interval    = MinInterval,
                                               backend_index   = BackendIndex,
                                               backend_message = BackendMessage} = State) ->
-    case consume_fun(Id, Mod, Fun, BackendIndex, BackendMessage) of
+    case consume_fun(Id, Mod, BackendIndex, BackendMessage) of
         not_found ->
             {noreply, State#state{is_consume = false}};
         _Other ->
@@ -229,13 +226,12 @@ maybe_consume(#state{is_consume = true} = State) ->
     State;
 maybe_consume(#state{id = Id,
                      module   = Mod,
-                     function = Fun,
                      max_interval    = MaxInterval,
                      min_interval    = MinInterval,
                      backend_index   = BackendIndex,
                      backend_message = BackendMessage,
                      is_consume      = false} = State) ->
-    case consume_fun(Id, Mod, Fun, BackendIndex, BackendMessage) of
+    case consume_fun(Id, Mod, BackendIndex, BackendMessage) of
         not_found ->
             State#state{is_consume = false};
         _Other ->
@@ -246,9 +242,9 @@ maybe_consume(#state{id = Id,
 
 %% @doc Consume a message
 %%
--spec(consume_fun(atom(), atom(), atom(), atom(), atom()) ->
+-spec(consume_fun(atom(), atom(), atom(), atom()) ->
              ok | {error, any()}).
-consume_fun(Id, Mod, Fun, BackendIndex, BackendMessage) ->
+consume_fun(Id, Mod, BackendIndex, BackendMessage) ->
     try
         case leo_backend_db_api:first(BackendIndex) of
             {ok, {K0, V0}} ->
@@ -256,7 +252,7 @@ consume_fun(Id, Mod, Fun, BackendIndex, BackendMessage) ->
                     {ok, V1} ->
                         {_, MsgBin} = binary_to_term(V1),
 
-                        catch erlang:apply(Mod, Fun, [Id, MsgBin]),
+                        catch erlang:apply(Mod, handle_call, [consume, Id, MsgBin]),
                         catch leo_backend_db_api:delete(BackendIndex,   K0),
                         catch leo_backend_db_api:delete(BackendMessage, V0),
                         ok;

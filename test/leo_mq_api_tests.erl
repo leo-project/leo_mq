@@ -35,7 +35,7 @@
 -define(TEST_KEY_1, "air/on/g/string_1").
 -define(TEST_META_1, [{key,       ?TEST_KEY_1},
                       {vnode_id,  1},
-                      {vclock,    9},
+                      {clock,     9},
                       {timestamp, 8},
                       {checksum,  7}]).
 
@@ -67,6 +67,7 @@ teardown(Path) ->
     meck:unload(),
     os:cmd("rm -rf " ++ Path),
 
+    leo_mq_sup:stop(),
     application:stop(leo_backend_db),
     application:stop(leo_mq),
     ok.
@@ -74,19 +75,22 @@ teardown(Path) ->
 
 publish_(Path) ->
     Ret =  leo_mq_api:new(?QUEUE_ID_REPLICATE_MISS, [{module,   ?TEST_CLIENT_MOD},
-                                                      {function,  subscribe},
                                                       {root_path, Path},
                                                       {max_interval, 500},
                                                       {min_interval, 100}]),
     ?assertEqual(ok, Ret),
 
     meck:new(?TEST_CLIENT_MOD),
-    meck:expect(?TEST_CLIENT_MOD, subscribe,
-                fun(Id, MsgBin) ->
-                        ?debugVal(Id),
-                        ?debugVal(binary_to_term(MsgBin)),
+    meck:expect(?TEST_CLIENT_MOD, handle_call,
+                fun(consume, Id, MsgBin) ->
+                        ?debugVal({consume, Id, binary_to_term(MsgBin)}),
                         ?assertEqual(?QUEUE_ID_REPLICATE_MISS, Id),
                         ?assertEqual(?TEST_META_1, binary_to_term(MsgBin)),
+                        ok
+                end),
+    meck:expect(?TEST_CLIENT_MOD, handle_call,
+                fun(publish, Reply) ->
+                        ?debugVal({publish, Reply}),
                         ok
                 end),
 
