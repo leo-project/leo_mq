@@ -18,16 +18,26 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% ---------------------------------------------------------------------
+%% Leo MQ  - Behaviour.
+%% @doc
+%% @end
 %%======================================================================
-{application, leo_mq,
-  [
-    {description, "Leo MQ"},
-    {vsn, "0.10.0"},
-    {id, "leo_mq"},
-    {registered,   []},
-    {applications, [kernel, stdlib]},
-    {mod, {leo_mq_app, []}},
-    {env, [{profile,    false},
-           {backend_db, 'bitcask'}]}
-  ]
-}.
+-module(leo_mq_behaviour).
+
+-author('Yosuke Hara').
+
+-export([behaviour_info/1]).
+
+behaviour_info(callbacks) ->
+    [
+     %% init() -> ok.
+     {init, 0},
+
+     %% hande_call(publich, Id) -> ok.
+     %% hande_call(consume, Id, message_bin) -> ok.
+     {handle_call, 2}
+    ];
+behaviour_info(_Other) ->
+    undefined.
+

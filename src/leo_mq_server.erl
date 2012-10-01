@@ -26,7 +26,6 @@
 -module(leo_mq_server).
 
 -author('Yosuke Hara').
--vsn('0.9.1').
 
 -behaviour(gen_server).
 
@@ -60,7 +59,6 @@
 
 -record(state, {id                 :: atom(),
                 module             :: atom(),
-                function           :: atom(),
                 max_interval       :: integer(),
                 min_interval       :: integer(),
                 backend_index      :: atom(),
@@ -111,7 +109,6 @@ status(Id) ->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 init([Id, #mq_properties{module       = Mod,
-                         function     = Fun,
                          db_name      = DBName,
                          db_procs     = DBProcs,
                          root_path    = RootPath,
@@ -120,17 +117,14 @@ init([Id, #mq_properties{module       = Mod,
     [{MQDBIndexPath,   MQDBIndexId},
      {MQDBMessagePath, MQDBMessageId}] = backend_db_info(Id, RootPath),
 
-    Res0 = leo_mq_backend_db:start(MQDBIndexId,   DBProcs, DBName, MQDBIndexPath),
-    Res1 = leo_mq_backend_db:start(MQDBMessageId, DBProcs, DBName, MQDBMessagePath),
-
-    %% Id = ets:new(Id, [named_table, public, {read_concurrency, true}]),
+    Res0 = leo_backend_db_api:new(MQDBIndexId,   DBProcs, DBName, MQDBIndexPath),
+    Res1 = leo_backend_db_api:new(MQDBMessageId, DBProcs, DBName, MQDBMessagePath),
 
     case (Res0 == ok andalso Res1 == ok) of
         true ->
             defer_consume(Id, ?CONSUME_REGULAR, MaxInterval, MinInterval),
             {ok, #state{id              = Id,
                         module          = Mod,
-                        function        = Fun,
                         max_interval    = MaxInterval,
                         min_interval    = MinInterval,
                         backend_index   = MQDBIndexId,
@@ -141,8 +135,8 @@ init([Id, #mq_properties{module       = Mod,
 
 handle_call({status}, _From, #state{backend_index   = MQDBIndexId,
                                     backend_message = MQDBMessageId} = State) ->
-    Res0 = leo_mq_backend_db:status(MQDBIndexId),
-    Res1 = leo_mq_backend_db:status(MQDBMessageId),
+    Res0 = leo_backend_db_api:status(MQDBIndexId),
+    Res1 = leo_backend_db_api:status(MQDBMessageId),
 
     Count0 = lists:foldl(fun([{key_count, KC0}, _], Acc0) -> Acc0 + KC0;
                             (_, Acc0) -> Acc0
@@ -158,8 +152,9 @@ handle_call(stop, _From, State) ->
 
 %% @doc Publish - Msg:"REPLICATE DATA".
 %%
-handle_cast({publish, KeyBin, MessageBin}, State) ->
-    catch put_message(KeyBin, {leo_date:clock(), MessageBin}, State),
+handle_cast({publish, KeyBin, MessageBin}, State = #state{module = Mod}) ->
+    Reply = put_message(KeyBin, {leo_date:clock(), MessageBin}, State),
+    catch erlang:apply(Mod, handle_call, [publish, Reply]),
 
     NewState = maybe_consume(State),
     {noreply, NewState};
@@ -179,12 +174,11 @@ handle_cast({consume, ?CONSUME_REGULAR}, State) ->
 
 handle_cast({consume, ?CONSUME_FORCE}, #state{id       = Id,
                                               module   = Mod,
-                                              function = Fun,
                                               max_interval    = MaxInterval,
                                               min_interval    = MinInterval,
                                               backend_index   = BackendIndex,
                                               backend_message = BackendMessage} = State) ->
-    case consume_fun(Id, Mod, Fun, BackendIndex, BackendMessage) of
+    case consume_fun(Id, Mod, BackendIndex, BackendMessage) of
         not_found ->
             {noreply, State#state{is_consume = false}};
         _Other ->
@@ -232,13 +226,12 @@ maybe_consume(#state{is_consume = true} = State) ->
     State;
 maybe_consume(#state{id = Id,
                      module   = Mod,
-                     function = Fun,
                      max_interval    = MaxInterval,
                      min_interval    = MinInterval,
                      backend_index   = BackendIndex,
                      backend_message = BackendMessage,
                      is_consume      = false} = State) ->
-    case consume_fun(Id, Mod, Fun, BackendIndex, BackendMessage) of
+    case consume_fun(Id, Mod, BackendIndex, BackendMessage) of
         not_found ->
             State#state{is_consume = false};
         _Other ->
@@ -249,19 +242,19 @@ maybe_consume(#state{id = Id,
 
 %% @doc Consume a message
 %%
--spec(consume_fun(atom(), atom(), atom(), atom(), atom()) ->
+-spec(consume_fun(atom(), atom(), atom(), atom()) ->
              ok | {error, any()}).
-consume_fun(Id, Mod, Fun, BackendIndex, BackendMessage) ->
+consume_fun(Id, Mod, BackendIndex, BackendMessage) ->
     try
-        case leo_mq_backend_db:first(BackendIndex) of
+        case leo_backend_db_api:first(BackendIndex) of
             {ok, {K0, V0}} ->
-                case leo_mq_backend_db:get(BackendMessage, V0) of
+                case leo_backend_db_api:get(BackendMessage, V0) of
                     {ok, V1} ->
                         {_, MsgBin} = binary_to_term(V1),
 
-                        catch erlang:apply(Mod, Fun, [Id, MsgBin]),
-                        catch leo_mq_backend_db:delete(BackendIndex,   K0),
-                        catch leo_mq_backend_db:delete(BackendMessage, V0),
+                        catch erlang:apply(Mod, handle_call, [consume, Id, MsgBin]),
+                        catch leo_backend_db_api:delete(BackendIndex,   K0),
+                        catch leo_backend_db_api:delete(BackendMessage, V0),
                         ok;
                     not_found = Cause ->
                         {error, Cause};
@@ -303,15 +296,15 @@ put_message(MsgKeyBin, {MsgId, _MsgBin} = MsgTuple, #state{backend_index   = Bac
     MessageBin = term_to_binary(MsgTuple),
 
     try
-        case leo_mq_backend_db:get(BackendMessage, MsgKeyBin) of
+        case leo_backend_db_api:get(BackendMessage, MsgKeyBin) of
             not_found ->
-                case leo_mq_backend_db:put(BackendIndex, MsgIdBin, MsgKeyBin) of
+                case leo_backend_db_api:put(BackendIndex, MsgIdBin, MsgKeyBin) of
                     ok ->
-                        case leo_mq_backend_db:put(BackendMessage, MsgKeyBin, MessageBin) of
+                        case leo_backend_db_api:put(BackendMessage, MsgKeyBin, MessageBin) of
                             ok ->
                                 ok;
                             Error ->
-                                leo_mq_backend_db:delete(BackendIndex, MsgIdBin),
+                                leo_backend_db_api:delete(BackendIndex, MsgIdBin),
                                 Error
                         end;
                     Error ->
