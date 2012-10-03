@@ -82,15 +82,13 @@ publish_(Path) ->
 
     meck:new(?TEST_CLIENT_MOD),
     meck:expect(?TEST_CLIENT_MOD, handle_call,
-                fun(consume, Id, MsgBin) ->
+                fun({consume, Id, MsgBin}) ->
                         ?debugVal({consume, Id, binary_to_term(MsgBin)}),
                         ?assertEqual(?QUEUE_ID_REPLICATE_MISS, Id),
                         ?assertEqual(?TEST_META_1, binary_to_term(MsgBin)),
-                        ok
-                end),
-    meck:expect(?TEST_CLIENT_MOD, handle_call,
-                fun(publish, Reply) ->
-                        ?debugVal({publish, Reply}),
+                        ok;
+                   ({publish, Id, Reply}) ->
+                        ?debugVal({publish, Id, Reply}),
                         ok
                 end),
 

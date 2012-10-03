@@ -34,9 +34,9 @@ behaviour_info(callbacks) ->
      %% init() -> ok.
      {init, 0},
 
-     %% hande_call(publich, Id) -> ok.
-     %% hande_call(consume, Id, message_bin) -> ok.
-     {handle_call, 2}
+     %% hande_call({publish, Id, reply}) -> ok.
+     %% hande_call({consume, Id, message_bin}) -> ok.
+     {handle_call, 1}
     ];
 behaviour_info(_Other) ->
     undefined.
