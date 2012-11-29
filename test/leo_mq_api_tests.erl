@@ -69,7 +69,6 @@ teardown(Path) ->
 
     leo_mq_sup:stop(),
     application:stop(leo_backend_db),
-    application:stop(leo_mq),
     ok.
 
 

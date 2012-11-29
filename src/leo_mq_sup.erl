@@ -29,6 +29,8 @@
 
 -behaviour(supervisor).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -export([start_link/0,
          stop/0,
          init/1]).
@@ -50,6 +52,8 @@ start_link() ->
 stop() ->
     case whereis(?MODULE) of
         Pid when is_pid(Pid) == true ->
+            ?debugVal(supervisor:which_children(Pid)),
+            ok = terminate_children(supervisor:which_children(Pid)),
             exit(Pid, shutdown),
             ok;
         _ -> not_started
@@ -64,11 +68,18 @@ stop() ->
 %% @end
 %% @private
 init([]) ->
-    {ok, {{simple_one_for_one, 5, 60},
-          [{leo_mq_server, {leo_mq_server, start_link, []},
-            permanent, 2000, worker, [leo_mq_server]}]}}.
+    {ok, {{one_for_one, 5, 60}, []}}.
 
 %% ---------------------------------------------------------------------
 %% Inner Function(s)
 %% ---------------------------------------------------------------------
+terminate_children([]) ->
+    ok;
+terminate_children([{undefined,_Pid,worker,_}|T]) ->
+    terminate_children(T);
+terminate_children([{Id,_Pid, worker,[Mod|_]}|T]) ->
+    Mod:stop(Id),
+    terminate_children(T);
+terminate_children([_|T]) ->
+        terminate_children(T).
 

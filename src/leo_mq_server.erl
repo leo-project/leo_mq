@@ -75,6 +75,9 @@ start_link(Id, Props) ->
 
 
 stop(Id) ->
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "stop/1"},
+                           {line, ?LINE}, {body, Id}]),
     gen_server:call(Id, stop).
 
 
@@ -147,7 +150,7 @@ handle_call({status}, _From, #state{backend_index   = MQDBIndexId,
     {reply, {ok, {Count0, Count1}}, State};
 
 handle_call(stop, _From, State) ->
-    {stop, normal, ok, State}.
+    {stop, shutdown, ok, State}.
 
 
 %% @doc Publish - Msg:"REPLICATE DATA".
@@ -206,7 +209,10 @@ handle_info(_Info, State) ->
 %% terminate. It should be the opposite of Module:init/1 and do any necessary
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{id = Id}) ->
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "terminate/1"},
+                           {line, ?LINE}, {body, Id}]),
     ok.
 
 
