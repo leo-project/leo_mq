@@ -57,6 +57,8 @@
 -define(CONSUME_REGULAR, 'regular').
 -type(consume_type() :: ?CONSUME_FORCE | ?CONSUME_REGULAR).
 
+-define(DEF_TIMEOUT, 30000).
+
 -record(state, {id                 :: atom(),
                 module             :: atom(),
                 max_interval       :: integer(),
@@ -78,7 +80,7 @@ stop(Id) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "stop/1"},
                            {line, ?LINE}, {body, Id}]),
-    gen_server:call(Id, stop).
+    gen_server:call(Id, stop, ?DEF_TIMEOUT).
 
 
 %% @doc register queuing data.
@@ -100,7 +102,7 @@ consume(Id, Type) ->
 -spec(status(atom()) ->
              {ok, list()}).
 status(Id) ->
-    gen_server:call(Id, {status}).
+    gen_server:call(Id, {status}, ?DEF_TIMEOUT).
 
 
 %%--------------------------------------------------------------------
