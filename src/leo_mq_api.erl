@@ -79,7 +79,12 @@ new(Id, Props) ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING}, {function, "new/2"},
                                     {line, ?LINE}, {body, Cause}]),
-            {error, noproc}
+            case leo_mq_sup:stop() of
+                ok ->
+                    exit(invalid_launch);
+                not_started ->
+                    exit(noproc)
+            end
     end.
 
 
