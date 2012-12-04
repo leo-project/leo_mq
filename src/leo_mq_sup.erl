@@ -29,6 +29,8 @@
 
 -behaviour(supervisor).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -export([start_link/0,
          stop/0,
          init/1]).
@@ -64,9 +66,7 @@ stop() ->
 %% @end
 %% @private
 init([]) ->
-    {ok, {{simple_one_for_one, 5, 60},
-          [{leo_mq_server, {leo_mq_server, start_link, []},
-            permanent, 2000, worker, [leo_mq_server]}]}}.
+    {ok, {{one_for_one, 5, 60}, []}}.
 
 %% ---------------------------------------------------------------------
 %% Inner Function(s)

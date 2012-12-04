@@ -67,17 +67,24 @@ new(Id, PropLists) when is_list(PropLists) == true ->
     end;
 
 new(Id, Props) ->
-    ?debugVal({Id, Props}),
     ok = start_app(),
+    ChildSpec = {Id,
+                 {leo_mq_server, start_link, [Id, Props]},
+                 permanent, 2000, worker, [leo_mq_server]},
 
-    case supervisor:start_child(leo_mq_sup, [Id, Props]) of
+    case supervisor:start_child(leo_mq_sup, ChildSpec) of
         {ok, _Pid} ->
             ok;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING}, {function, "new/2"},
                                     {line, ?LINE}, {body, Cause}]),
-            {error, noproc}
+            case leo_mq_sup:stop() of
+                ok ->
+                    exit(invalid_launch);
+                not_started ->
+                    exit(noproc)
+            end
     end.
 
 
@@ -106,7 +113,10 @@ start_app() ->
             ok;
         {error, {already_started, Module}} ->
             ok;
-        Error ->
-            Error
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "start_app/0"},
+                                    {line, ?LINE}, {body, Cause}]),
+            {exit, Cause}
     end.
 
