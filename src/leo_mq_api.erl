@@ -67,7 +67,6 @@ new(Id, PropLists) when is_list(PropLists) == true ->
     end;
 
 new(Id, Props) ->
-    ok = start_app(),
     ChildSpec = {Id,
                  {leo_mq_server, start_link, [Id, Props]},
                  permanent, 2000, worker, [leo_mq_server]},
@@ -106,17 +105,4 @@ status(Id) ->
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
 %%--------------------------------------------------------------------
-start_app() ->
-    Module = leo_mq,
-    case application:start(Module) of
-        ok ->
-            ok;
-        {error, {already_started, Module}} ->
-            ok;
-        {error, Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "start_app/0"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {exit, Cause}
-    end.
 

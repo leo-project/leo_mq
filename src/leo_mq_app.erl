@@ -29,7 +29,8 @@
 
 -behaviour(application).
 
-%% Application and Supervisor callbacks
+-include_lib("eunit/include/eunit.hrl").
+
 -export([start/2, stop/1, profile_output/0]).
 
 %%----------------------------------------------------------------------
@@ -37,7 +38,8 @@
 %%----------------------------------------------------------------------
 start(_Type, _Args) ->
     consider_profiling(),
-    leo_mq_sup:start_link().
+    Res = leo_mq_sup:start_link(),
+    after_proc(Res).
 
 stop(_State) ->
     ok.
@@ -52,13 +54,41 @@ profile_output() ->
     eprof:analyze(total).
 
 
+%% @doc
+%% @private
 -spec consider_profiling() -> profiling | not_profiling | {error, any()}.
 consider_profiling() ->
-    case application:get_env(profile) of
+    case application:get_env(leo_mq, profile) of
         {ok, true} ->
             {ok, _Pid} = eprof:start(),
             eprof:start_profiling([self()]);
         _ ->
             not_profiling
     end.
+
+
+%% @doc After sup launch processing
+%% @private
+-spec(after_proc({ok, pid()} | {error, any()}) ->
+             {ok, pid()} | {error, any()}).
+after_proc({ok, RefSup}) ->
+    %% Launch backend-db's sup
+    %%   under the leo_object_storage_sup
+    ChildSpec = {leo_backend_db_sup,
+                 {leo_backend_db_sup, start_link, []},
+                 permanent, 2000, supervisor, [leo_backend_db_sup]},
+
+    case supervisor:start_child(RefSup, ChildSpec) of
+        {ok, Pid} ->
+            ok = application:set_env(leo_mq, backend_db_sup_ref, Pid);
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "start_child/2"},
+                                    {line, ?LINE}, {body, "Could NOT start backend-db sup"}]),
+            exit(Cause)
+    end,
+    {ok, RefSup};
+
+after_proc(Error) ->
+    Error.
 
