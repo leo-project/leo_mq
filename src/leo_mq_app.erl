@@ -29,7 +29,8 @@
 
 -behaviour(application).
 
-%% Application and Supervisor callbacks
+-include_lib("eunit/include/eunit.hrl").
+
 -export([start/2, stop/1, profile_output/0]).
 
 %%----------------------------------------------------------------------
@@ -52,13 +53,14 @@ profile_output() ->
     eprof:analyze(total).
 
 
+%% @doc
+%% @private
 -spec consider_profiling() -> profiling | not_profiling | {error, any()}.
 consider_profiling() ->
-    case application:get_env(profile) of
+    case application:get_env(leo_mq, profile) of
         {ok, true} ->
             {ok, _Pid} = eprof:start(),
             eprof:start_profiling([self()]);
         _ ->
             not_profiling
     end.
-

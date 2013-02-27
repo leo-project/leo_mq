@@ -42,7 +42,8 @@
 %% @doc start link...
 %% @end
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    Res = supervisor:start_link({local, ?MODULE}, ?MODULE, []),
+    after_proc(Res).
 
 
 %% @spec () -> ok |
@@ -68,7 +69,37 @@ stop() ->
 init([]) ->
     {ok, {{one_for_one, 5, 60}, []}}.
 
+
 %% ---------------------------------------------------------------------
 %% Inner Function(s)
 %% ---------------------------------------------------------------------
+%% @doc After sup launch processing
+%% @private
+-spec(after_proc({ok, pid()} | {error, any()}) ->
+             {ok, pid()} | {error, any()}).
+after_proc({ok, RefSup}) ->
+    %% Launch backend-db's sup
+    %%   under the leo_mq_sup
+    RefBDBSup =
+        case whereis(leo_backend_db_sup) of
+            undefined ->
+                ChildSpec = {leo_backend_db_sup,
+                             {leo_backend_db_sup, start_link, []},
+                             permanent, 2000, supervisor, [leo_backend_db_sup]},
+                case supervisor:start_child(RefSup, ChildSpec) of
+                    {ok, Pid} ->
+                        Pid;
+                    {error, Cause} ->
+                        error_logger:error_msg("~p,~p,~p,~p~n",
+                                               [{module, ?MODULE_STRING}, {function, "start_child/2"},
+                                                {line, ?LINE}, {body, "Could NOT start backend-db sup"}]),
+                        exit(Cause)
+                end;
+            Pid ->
+                Pid
+        end,
+    ok = application:set_env(leo_mq, backend_db_sup_ref, RefBDBSup),
+    {ok, RefSup};
 
+after_proc(Error) ->
+    Error.

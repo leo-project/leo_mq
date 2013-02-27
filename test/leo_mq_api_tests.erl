@@ -57,6 +57,8 @@ setup() ->
     meck:expect(leo_util, clock, fun() -> 1000 end),
     meck:expect(leo_util, now,   fun() -> 1000 end),
 
+    application:start(leo_mq),
+
     S = os:cmd("pwd"),
     Path = string:substr(S, 1, length(S) -1) ++ "/queue",
     os:cmd("rm -rf " ++ Path),
