@@ -123,9 +123,9 @@ init([Id, #mq_properties{module       = Mod,
      {MQDBMessagePath, MQDBMessageId}] = backend_db_info(Id, RootPath),
 
     case application:get_env(leo_mq, backend_db_sup_ref) of
-        {ok, RefSup} ->
-            Res0   = leo_backend_db_sup:start_child(RefSup, MQDBIndexId,   DBProcs, DBName, MQDBIndexPath),
-            Res1   = leo_backend_db_sup:start_child(RefSup, MQDBMessageId, DBProcs, DBName, MQDBMessagePath),
+        {ok, Pid} ->
+            Res0   = leo_backend_db_sup:start_child(Pid, MQDBIndexId,   DBProcs, DBName, MQDBIndexPath),
+            Res1   = leo_backend_db_sup:start_child(Pid, MQDBMessageId, DBProcs, DBName, MQDBMessagePath),
 
             case (Res0 == ok andalso Res1 == ok) of
                 true ->
@@ -139,7 +139,7 @@ init([Id, #mq_properties{module       = Mod,
                 false ->
                     {stop, "Failure backend_db launch"}
             end;
-        _ ->
+        _Error ->
             {stop, "Not initialized"}
     end.
 

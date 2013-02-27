@@ -38,8 +38,7 @@
 %%----------------------------------------------------------------------
 start(_Type, _Args) ->
     consider_profiling(),
-    Res = leo_mq_sup:start_link(),
-    after_proc(Res).
+    leo_mq_sup:start_link().
 
 stop(_State) ->
     ok.
@@ -65,30 +64,3 @@ consider_profiling() ->
         _ ->
             not_profiling
     end.
-
-
-%% @doc After sup launch processing
-%% @private
--spec(after_proc({ok, pid()} | {error, any()}) ->
-             {ok, pid()} | {error, any()}).
-after_proc({ok, RefSup}) ->
-    %% Launch backend-db's sup
-    %%   under the leo_object_storage_sup
-    ChildSpec = {leo_backend_db_sup,
-                 {leo_backend_db_sup, start_link, []},
-                 permanent, 2000, supervisor, [leo_backend_db_sup]},
-
-    case supervisor:start_child(RefSup, ChildSpec) of
-        {ok, Pid} ->
-            ok = application:set_env(leo_mq, backend_db_sup_ref, Pid);
-        {error, Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "start_child/2"},
-                                    {line, ?LINE}, {body, "Could NOT start backend-db sup"}]),
-            exit(Cause)
-    end,
-    {ok, RefSup};
-
-after_proc(Error) ->
-    Error.
-
