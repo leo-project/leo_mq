@@ -1,3 +1,4 @@
+%% -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
 %%======================================================================
 %%
 %% Leo MQ
@@ -20,14 +21,14 @@
 %%
 %%======================================================================
 {application, leo_mq,
-  [
-    {description, "Leo MQ"},
-    {vsn, "0.12.12"},
-    {id, "leo_mq"},
-    {registered,   []},
-    {applications, [kernel, stdlib]},
-    {mod, {leo_mq_app, []}},
-    {env, [{profile,    false},
-           {backend_db, 'bitcask'}]}
-  ]
+ [
+  {description, "Leo MQ"},
+  {vsn, "0.12.13"},
+  {id, "leo_mq"},
+  {registered,   []},
+  {applications, [kernel, stdlib]},
+  {mod, {leo_mq_app, []}},
+  {env, [{profile,    false},
+         {backend_db, 'bitcask'}]}
+ ]
 }.
