@@ -53,11 +53,19 @@ start_link() ->
 stop() ->
     case whereis(?MODULE) of
         Pid when is_pid(Pid) == true ->
-            exit(Pid, shutdown),
+            stop(Pid),
             ok;
         _ -> not_started
     end.
 
+stop(Pid) ->
+    List = supervisor:which_children(Pid),
+    Len  = length(List),
+
+    ok = terminate_children(List),
+    timer:sleep(Len * 100),
+    exit(Pid, shutdown),
+    ok.
 
 %% ---------------------------------------------------------------------
 %% Callbacks
@@ -103,3 +111,14 @@ after_proc({ok, RefSup}) ->
 
 after_proc(Error) ->
     Error.
+
+terminate_children([]) ->
+        ok;
+terminate_children([{_Id,_Pid, supervisor, [Mod|_]}|T]) ->
+        Mod:stop(),
+        terminate_children(T);
+terminate_children([{Id,_Pid, worker, [Mod|_]}|T]) ->
+        Mod:stop(Id),
+        terminate_children(T);
+terminate_children([_|T]) ->
+        terminate_children(T).
