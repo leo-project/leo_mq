@@ -42,7 +42,7 @@
          terminate/2,
          code_change/3]).
 
--export([publish/3, consume/2, status/1]).
+-export([publish/3, consume/1, status/1]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -53,19 +53,16 @@
 -define(DEF_DB_PATH_INDEX,   "index"  ).
 -define(DEF_DB_PATH_MESSAGE, "message").
 
--define(CONSUME_FORCE,   'force').
--define(CONSUME_REGULAR, 'regular').
--type(consume_type() :: ?CONSUME_FORCE | ?CONSUME_REGULAR).
-
 -define(DEF_TIMEOUT, 30000).
+-define(DEF_AFTER_NOT_FOUND_INTERVAL_MIN,  5000).
+-define(DEF_AFTER_NOT_FOUND_INTERVAL_MAX, 10000).
 
 -record(state, {id                 :: atom(),
                 module             :: atom(),
                 max_interval       :: integer(),
                 min_interval       :: integer(),
                 backend_index      :: atom(),
-                backend_message    :: atom(),
-                is_consume = false :: boolean()}).
+                backend_message    :: atom()}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -92,9 +89,13 @@ publish(Id, KeyBin, MessageBin) ->
 
 %% @doc consume a message from the queue.
 %%
--spec(consume(atom(), consume_type()) -> ok | {error, any()}).
-consume(Id, Type) ->
-    gen_server:cast(Id, {consume, Type}).
+-spec(consume(atom()) -> ok | {error, any()}).
+consume(Id) ->
+    gen_server:cast(Id, {consume}).
+
+%% -spec(consume(atom(), consume_type()) -> ok | {error, any()}).
+%% consume(Id, Type) ->
+%%     gen_server:cast(Id, {consume, Type}).
 
 
 %% @doc get state from the queue.
@@ -129,7 +130,7 @@ init([Id, #mq_properties{module       = Mod,
 
             case (Res0 == ok andalso Res1 == ok) of
                 true ->
-                    defer_consume(Id, ?CONSUME_REGULAR, MaxInterval, MinInterval),
+                    defer_consume(Id, MaxInterval, MinInterval),
                     {ok, #state{id              = Id,
                                 module          = Mod,
                                 max_interval    = MaxInterval,
@@ -167,34 +168,23 @@ handle_cast({publish, KeyBin, MessageBin}, State = #state{id     = Id,
     Reply = put_message(KeyBin, {leo_date:clock(), MessageBin}, State),
     catch erlang:apply(Mod, handle_call, [{publish, Id, Reply}]),
 
-    NewState = maybe_consume(State),
-    {noreply, NewState};
+    {noreply, State};
 
-%% @doc Consume a message from the queue.
-%%
-handle_cast({consume, ?CONSUME_REGULAR}, State) ->
-    case catch maybe_consume(State) of
-        {'EXIT', Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "handle_cast/2"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {noreply, State};
-        NewState ->
-            {noreply, NewState}
-    end;
 
-handle_cast({consume, ?CONSUME_FORCE}, #state{id       = Id,
-                                              module   = Mod,
-                                              max_interval    = MaxInterval,
-                                              min_interval    = MinInterval,
-                                              backend_index   = BackendIndex,
-                                              backend_message = BackendMessage} = State) ->
+handle_cast({consume}, #state{id       = Id,
+                              module   = Mod,
+                              max_interval    = MaxInterval,
+                              min_interval    = MinInterval,
+                              backend_index   = BackendIndex,
+                              backend_message = BackendMessage} = State) ->
     case consume_fun(Id, Mod, BackendIndex, BackendMessage) of
         not_found ->
-            {noreply, State#state{is_consume = false}};
+            defer_consume(Id, ?DEF_AFTER_NOT_FOUND_INTERVAL_MAX,
+                          ?DEF_AFTER_NOT_FOUND_INTERVAL_MIN),
+            {noreply, State};
         _Other ->
-            defer_consume(Id, ?CONSUME_FORCE, MaxInterval, MinInterval),
-            {noreply, State#state{is_consume = true}}
+            defer_consume(Id, MaxInterval, MinInterval),
+            {noreply, State}
     end;
 
 handle_cast(_Msg, State) ->
@@ -232,28 +222,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %%% INNER FUNCTIONS
 %%--------------------------------------------------------------------
-%% @doc maybe consume a message from the queue.
-%%
--spec(maybe_consume(State::#state{}) ->
-             #state{}).
-maybe_consume(#state{is_consume = true} = State) ->
-    State;
-maybe_consume(#state{id = Id,
-                     module   = Mod,
-                     max_interval    = MaxInterval,
-                     min_interval    = MinInterval,
-                     backend_index   = BackendIndex,
-                     backend_message = BackendMessage,
-                     is_consume      = false} = State) ->
-    case consume_fun(Id, Mod, BackendIndex, BackendMessage) of
-        not_found ->
-            State#state{is_consume = false};
-        _Other ->
-            defer_consume(Id, ?CONSUME_FORCE, MaxInterval, MinInterval),
-            State#state{is_consume = true}
-    end.
-
-
 %% @doc Consume a message
 %%
 -spec(consume_fun(atom(), atom(), atom(), atom()) ->
@@ -275,29 +243,29 @@ consume_fun(Id, Mod, BackendIndex, BackendMessage) ->
                     Error ->
                         Error
                 end;
-            not_found = Cause->
+            not_found = Cause ->
                 Cause;
             Error ->
                 Error
         end
     catch
-        _ : Why ->
+        _: Why ->
             {error, Why}
     end.
 
 
 %% @doc Defer a cosuming message
 %%
--spec(defer_consume(atom(), consume_type(), integer(), integer()) ->
+-spec(defer_consume(atom(), integer(), integer()) ->
              ok).
-defer_consume(Id, Type, MaxTime, MinTime) ->
+defer_consume(Id, MaxTime, MinTime) ->
     Time0 = random:uniform(MaxTime),
     Time1 = case (Time0 < MinTime) of
                 true  -> MinTime;
                 false -> Time0
             end,
 
-    timer:apply_after(Time1, ?MODULE, consume, [Id, Type]).
+    timer:apply_after(Time1, ?MODULE, consume, [Id]).
 
 
 %% @doc put a message into the queue.

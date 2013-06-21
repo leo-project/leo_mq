@@ -55,14 +55,16 @@ new(Id, PropLists) when is_list(PropLists) == true ->
         undefined ->
             {error, badarg};
         Mod ->
-            new(Id, #mq_properties{module       = Mod,
-                                   function     = leo_misc:get_value(?MQ_PROP_FUN,          PropLists, ?MQ_SUBSCRIBE_FUN),
-                                   db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      PropLists, ?DEF_BACKEND_DB),
-                                   db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     PropLists, ?DEF_BACKEND_DB_PROCS),
-                                   root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    PropLists, ?DEF_DB_ROOT_PATH),
-                                   max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, PropLists, ?DEF_CONSUME_MAX_INTERVAL),
-                                   min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, PropLists, ?DEF_CONSUME_MIN_INTERVAL)
-                                  })
+            new(Id,
+                #mq_properties
+                {module       = Mod,
+                 function     = leo_misc:get_value(?MQ_PROP_FUN,          PropLists, ?MQ_SUBSCRIBE_FUN),
+                 db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      PropLists, ?DEF_BACKEND_DB),
+                 db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     PropLists, ?DEF_BACKEND_DB_PROCS),
+                 root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    PropLists, ?DEF_DB_ROOT_PATH),
+                 max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, PropLists, ?DEF_CONSUME_MAX_INTERVAL),
+                 min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, PropLists, ?DEF_CONSUME_MIN_INTERVAL)
+                })
     end;
 
 new(Id, Props) ->
@@ -72,14 +74,15 @@ new(RefSup, Id, Props0) ->
     Props1 =
         case is_list(Props0) of
             true ->
-                #mq_properties{module       = leo_misc:get_value(?MQ_PROP_MOD,          Props0, undefined),
-                               function     = leo_misc:get_value(?MQ_PROP_FUN,          Props0, ?MQ_SUBSCRIBE_FUN),
-                               db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Props0, ?DEF_BACKEND_DB),
-                               db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props0, ?DEF_BACKEND_DB_PROCS),
-                               root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Props0, ?DEF_DB_ROOT_PATH),
-                               max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, Props0, ?DEF_CONSUME_MAX_INTERVAL),
-                               min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, Props0, ?DEF_CONSUME_MIN_INTERVAL)
-                              };
+                #mq_properties
+                    {module       = leo_misc:get_value(?MQ_PROP_MOD,          Props0, undefined),
+                     function     = leo_misc:get_value(?MQ_PROP_FUN,          Props0, ?MQ_SUBSCRIBE_FUN),
+                     db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Props0, ?DEF_BACKEND_DB),
+                     db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props0, ?DEF_BACKEND_DB_PROCS),
+                     root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Props0, ?DEF_DB_ROOT_PATH),
+                     max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, Props0, ?DEF_CONSUME_MAX_INTERVAL),
+                     min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, Props0, ?DEF_CONSUME_MIN_INTERVAL)
+                    };
             false ->
                 Props0
         end,
