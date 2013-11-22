@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012 Rakuten, Inc.
+%% Copyright (c) 2012-2013 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -41,6 +41,7 @@
 
 -define(DEF_CONSUME_MAX_INTERVAL, 3000).
 -define(DEF_CONSUME_MIN_INTERVAL, 1000).
+-define(DEF_CONSUME_NUM_OF_BATCH_PROC, 1).
 
 
 %%--------------------------------------------------------------------
@@ -62,6 +63,7 @@ new(Id, PropLists) when is_list(PropLists) == true ->
                  db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      PropLists, ?DEF_BACKEND_DB),
                  db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     PropLists, ?DEF_BACKEND_DB_PROCS),
                  root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    PropLists, ?DEF_DB_ROOT_PATH),
+                 num_of_batch_processes = leo_misc:get_value(?MQ_PROP_NUM_OF_BATCH_PROC, PropLists, ?DEF_CONSUME_NUM_OF_BATCH_PROC),
                  max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, PropLists, ?DEF_CONSUME_MAX_INTERVAL),
                  min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, PropLists, ?DEF_CONSUME_MIN_INTERVAL)
                 })
@@ -80,6 +82,7 @@ new(RefSup, Id, Props0) ->
                      db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Props0, ?DEF_BACKEND_DB),
                      db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props0, ?DEF_BACKEND_DB_PROCS),
                      root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Props0, ?DEF_DB_ROOT_PATH),
+                     num_of_batch_processes = leo_misc:get_value(?MQ_PROP_NUM_OF_BATCH_PROC, Props0, ?DEF_CONSUME_NUM_OF_BATCH_PROC),
                      max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, Props0, ?DEF_CONSUME_MAX_INTERVAL),
                      min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, Props0, ?DEF_CONSUME_MIN_INTERVAL)
                     };

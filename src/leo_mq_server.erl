@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012 Rakuten, Inc.
+%% Copyright (c) 2012-2013 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -57,12 +57,13 @@
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MIN,  5000).
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MAX, 10000).
 
--record(state, {id                 :: atom(),
-                module             :: atom(),
-                max_interval       :: integer(),
-                min_interval       :: integer(),
-                backend_index      :: atom(),
-                backend_message    :: atom()}).
+-record(state, {id                     :: atom(),
+                module                 :: atom(),
+                max_interval           :: integer(),
+                min_interval           :: integer(),
+                num_of_batch_processes :: pos_integer(),
+                backend_index          :: atom(),
+                backend_message        :: atom()}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -114,12 +115,13 @@ status(Id) ->
 %%                         ignore               |
 %%                         {stop, Reason}
 %% Description: Initiates the server
-init([Id, #mq_properties{module       = Mod,
-                         db_name      = DBName,
-                         db_procs     = DBProcs,
-                         root_path    = RootPath,
-                         max_interval = MaxInterval,
-                         min_interval = MinInterval}]) ->
+init([Id, #mq_properties{module                 = Mod,
+                         db_name                = DBName,
+                         db_procs               = DBProcs,
+                         root_path              = RootPath,
+                         num_of_batch_processes = NumOfBatchProc,
+                         max_interval           = MaxInterval,
+                         min_interval           = MinInterval}]) ->
     [{MQDBIndexPath,   MQDBIndexId},
      {MQDBMessagePath, MQDBMessageId}] = backend_db_info(Id, RootPath),
 
@@ -131,12 +133,13 @@ init([Id, #mq_properties{module       = Mod,
             case (Res0 == ok andalso Res1 == ok) of
                 true ->
                     defer_consume(Id, MaxInterval, MinInterval),
-                    {ok, #state{id              = Id,
-                                module          = Mod,
-                                max_interval    = MaxInterval,
-                                min_interval    = MinInterval,
-                                backend_index   = MQDBIndexId,
-                                backend_message = MQDBMessageId}};
+                    {ok, #state{id                     = Id,
+                                module                 = Mod,
+                                num_of_batch_processes = NumOfBatchProc,
+                                max_interval           = MaxInterval,
+                                min_interval           = MinInterval,
+                                backend_index          = MQDBIndexId,
+                                backend_message        = MQDBMessageId}};
                 false ->
                     {stop, "Failure backend_db launch"}
             end;
@@ -171,13 +174,14 @@ handle_cast({publish, KeyBin, MessageBin}, State = #state{id     = Id,
     {noreply, State};
 
 
-handle_cast({consume}, #state{id       = Id,
-                              module   = Mod,
-                              max_interval    = MaxInterval,
-                              min_interval    = MinInterval,
-                              backend_index   = BackendIndex,
-                              backend_message = BackendMessage} = State) ->
-    case consume_fun(Id, Mod, BackendIndex, BackendMessage) of
+handle_cast({consume}, #state{id                     = Id,
+                              module                 = Mod,
+                              num_of_batch_processes = NumOfBatchProc,
+                              max_interval           = MaxInterval,
+                              min_interval           = MinInterval,
+                              backend_index          = BackendIndex,
+                              backend_message        = BackendMessage} = State) ->
+    case consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc) of
         not_found ->
             defer_consume(Id, ?DEF_AFTER_NOT_FOUND_INTERVAL_MAX,
                           ?DEF_AFTER_NOT_FOUND_INTERVAL_MIN),
@@ -224,9 +228,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% @doc Consume a message
 %%
--spec(consume_fun(atom(), atom(), atom(), atom()) ->
+-spec(consume_fun(atom(), atom(), atom(), atom(), pos_integer()) ->
              ok | {error, any()}).
-consume_fun(Id, Mod, BackendIndex, BackendMessage) ->
+consume_fun(_, _, _, _, 0) ->
+    ok;
+consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc) ->
     try
         case leo_backend_db_api:first(BackendIndex) of
             {ok, {K0, V0}} ->
@@ -237,7 +243,7 @@ consume_fun(Id, Mod, BackendIndex, BackendMessage) ->
                         catch erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
                         catch leo_backend_db_api:delete(BackendIndex,   K0),
                         catch leo_backend_db_api:delete(BackendMessage, V0),
-                        ok;
+                        consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc - 1);
                     not_found = Cause ->
                         {error, Cause};
                     Error ->

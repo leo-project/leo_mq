@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012
+%% Copyright (c) 2012-2013 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -23,25 +23,27 @@
 %% @doc
 %% @end
 %%======================================================================
--define(MQ_LOG_ID,            'queue').
--define(MQ_LOG_FILE_NAME,     "queue").
--define(MQ_PROP_MOD,          'module').
--define(MQ_PROP_FUN,          'function').
--define(MQ_PROP_DB_NAME,      'db_name').
--define(MQ_PROP_DB_PROCS,     'db_procs').
--define(MQ_PROP_ROOT_PATH,    'root_path').
--define(MQ_PROP_MAX_INTERVAL, 'max_interval').
--define(MQ_PROP_MIN_INTERVAL, 'min_interval').
--define(MQ_SUBSCRIBE_FUN,     'subscribe').
+-define(MQ_LOG_ID,                 'queue').
+-define(MQ_LOG_FILE_NAME,          "queue").
+-define(MQ_PROP_MOD,               'module').
+-define(MQ_PROP_FUN,               'function').
+-define(MQ_PROP_DB_NAME,           'db_name').
+-define(MQ_PROP_DB_PROCS,          'db_procs').
+-define(MQ_PROP_ROOT_PATH,         'root_path').
+-define(MQ_PROP_NUM_OF_BATCH_PROC, 'num_of_batch_processes').
+-define(MQ_PROP_MAX_INTERVAL,      'max_interval').
+-define(MQ_PROP_MIN_INTERVAL,      'min_interval').
+-define(MQ_SUBSCRIBE_FUN,          'subscribe').
 
 
--record(mq_properties, {module       :: atom(),
-                        function     :: atom(),
-                        db_name      :: atom(),
-                        db_procs     :: integer(),
-                        root_path    :: string(),
-                        max_interval :: integer(),
-                        min_interval :: integer()
+-record(mq_properties, {module                 :: atom(),
+                        function               :: atom(),
+                        db_name                :: atom(),
+                        db_procs               :: integer(),
+                        root_path              :: string(),
+                        num_of_batch_processes :: pos_integer(),
+                        max_interval           :: integer(),
+                        min_interval           :: integer()
                        }).
 
 -record(mq_log,

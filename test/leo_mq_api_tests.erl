@@ -77,6 +77,7 @@ teardown(Path) ->
 publish_(Path) ->
     Ret =  leo_mq_api:new(?QUEUE_ID_REPLICATE_MISS, [{module,   ?TEST_CLIENT_MOD},
                                                       {root_path, Path},
+                                                      {num_of_batch_processes, 2},
                                                       {max_interval, 500},
                                                       {min_interval, 100}]),
     ?assertEqual(ok, Ret),
