@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012 Rakuten, Inc.
+%% Copyright (c) 2012-2013 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -113,12 +113,12 @@ after_proc(Error) ->
     Error.
 
 terminate_children([]) ->
-        ok;
+    ok;
 terminate_children([{_Id,_Pid, supervisor, [Mod|_]}|T]) ->
-        Mod:stop(),
-        terminate_children(T);
+    Mod:stop(),
+    terminate_children(T);
 terminate_children([{Id,_Pid, worker, [Mod|_]}|T]) ->
-        Mod:stop(Id),
-        terminate_children(T);
+    Mod:stop(Id),
+    terminate_children(T);
 terminate_children([_|T]) ->
-        terminate_children(T).
+    terminate_children(T).
