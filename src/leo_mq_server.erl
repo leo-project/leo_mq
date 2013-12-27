@@ -240,7 +240,7 @@ consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc) ->
                     {ok, V1} ->
                         {_, MsgBin} = binary_to_term(V1),
 
-                        catch erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
+                        erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
                         catch leo_backend_db_api:delete(BackendIndex,   K0),
                         catch leo_backend_db_api:delete(BackendMessage, V0),
                         consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc - 1);
@@ -256,6 +256,9 @@ consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc) ->
         end
     catch
         _: Why ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "consume_fun/5"},
+                                    {line, ?LINE}, {body, Why}]),
             {error, Why}
     end.
 
@@ -328,4 +331,3 @@ backend_db_info(Id, RootPath) ->
 
     [{MQDBIndexPath, MQDBIndexId},
      {MQDBMessagePath, MQDBMessageId}].
-
