@@ -256,6 +256,9 @@ consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc) ->
         end
     catch
         _: Why ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "consume_fun/5"},
+                                    {line, ?LINE}, {body, Why}]),
             {error, Why}
     end.
 
