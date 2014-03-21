@@ -92,11 +92,7 @@ publish(Id, KeyBin, MessageBin) ->
 %%
 -spec(consume(atom()) -> ok | {error, any()}).
 consume(Id) ->
-    gen_server:cast(Id, {consume}).
-
-%% -spec(consume(atom(), consume_type()) -> ok | {error, any()}).
-%% consume(Id, Type) ->
-%%     gen_server:cast(Id, {consume, Type}).
+    gen_server:cast(Id, consume).
 
 
 %% @doc get state from the queue.
@@ -104,7 +100,7 @@ consume(Id) ->
 -spec(status(atom()) ->
              {ok, list()}).
 status(Id) ->
-    gen_server:call(Id, {status}, ?DEF_TIMEOUT).
+    gen_server:call(Id, status, ?DEF_TIMEOUT).
 
 
 %%--------------------------------------------------------------------
@@ -147,8 +143,8 @@ init([Id, #mq_properties{module                 = Mod,
             {stop, "Not initialized"}
     end.
 
-handle_call({status}, _From, #state{backend_index   = MQDBIndexId,
-                                    backend_message = MQDBMessageId} = State) ->
+handle_call(status, _From, #state{backend_index   = MQDBIndexId,
+                                  backend_message = MQDBMessageId} = State) ->
     Res0 = leo_backend_db_api:status(MQDBIndexId),
     Res1 = leo_backend_db_api:status(MQDBMessageId),
 
@@ -174,13 +170,13 @@ handle_cast({publish, KeyBin, MessageBin}, State = #state{id     = Id,
     {noreply, State};
 
 
-handle_cast({consume}, #state{id                     = Id,
-                              module                 = Mod,
-                              num_of_batch_processes = NumOfBatchProc,
-                              max_interval           = MaxInterval,
-                              min_interval           = MinInterval,
-                              backend_index          = BackendIndex,
-                              backend_message        = BackendMessage} = State) ->
+handle_cast(consume, #state{id                     = Id,
+                            module                 = Mod,
+                            num_of_batch_processes = NumOfBatchProc,
+                            max_interval           = MaxInterval,
+                            min_interval           = MinInterval,
+                            backend_index          = BackendIndex,
+                            backend_message        = BackendMessage} = State) ->
     case consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc) of
         not_found ->
             defer_consume(Id, ?DEF_AFTER_NOT_FOUND_INTERVAL_MAX,
