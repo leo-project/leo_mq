@@ -68,18 +68,16 @@ setup() ->
 teardown(Path) ->
     meck:unload(),
     os:cmd("rm -rf " ++ Path),
-
-    leo_mq_sup:stop(),
-    application:stop(leo_backend_db),
+    application:stop(leo_mq),
     ok.
 
 
 publish_(Path) ->
-    Ret =  leo_mq_api:new(?QUEUE_ID_REPLICATE_MISS, [{module,   ?TEST_CLIENT_MOD},
-                                                      {root_path, Path},
-                                                      {num_of_batch_processes, 2},
-                                                      {max_interval, 500},
-                                                      {min_interval, 100}]),
+    Ret =  leo_mq_api:new(?QUEUE_ID_REPLICATE_MISS, [{module, ?TEST_CLIENT_MOD},
+                                                     {root_path, Path},
+                                                     {num_of_batch_processes, 2},
+                                                     {max_interval, 500},
+                                                     {min_interval, 100}]),
     ?assertEqual(ok, Ret),
 
     meck:new(?TEST_CLIENT_MOD),

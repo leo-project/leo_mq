@@ -42,7 +42,7 @@
          terminate/2,
          code_change/3]).
 
--export([publish/3, consume/1, status/1]).
+-export([publish/3, consume/1, status/1, close/1]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -103,6 +103,14 @@ status(Id) ->
     gen_server:call(Id, status, ?DEF_TIMEOUT).
 
 
+%% @doc get state from the queue.
+%%
+-spec(close(atom()) ->
+             ok).
+close(Id) ->
+    gen_server:call(Id, close, ?DEF_TIMEOUT).
+
+
 %%--------------------------------------------------------------------
 %% GEN_SERVER CALLBACKS
 %%--------------------------------------------------------------------
@@ -123,9 +131,10 @@ init([Id, #mq_properties{module                 = Mod,
 
     case application:get_env(leo_mq, backend_db_sup_ref) of
         {ok, Pid} ->
-            Res0   = leo_backend_db_sup:start_child(Pid, MQDBIndexId,   DBProcs, DBName, MQDBIndexPath),
-            Res1   = leo_backend_db_sup:start_child(Pid, MQDBMessageId, DBProcs, DBName, MQDBMessagePath),
-
+            Res0 = leo_backend_db_sup:start_child(Pid, MQDBIndexId,
+                                                  DBProcs, DBName, MQDBIndexPath),
+            Res1 = leo_backend_db_sup:start_child(Pid, MQDBMessageId,
+                                                  DBProcs, DBName, MQDBMessagePath),
             case (Res0 == ok andalso Res1 == ok) of
                 true ->
                     defer_consume(Id, MaxInterval, MinInterval),
@@ -155,6 +164,12 @@ handle_call(status, _From, #state{backend_index   = MQDBIndexId,
                             (_, Acc1) -> Acc1
                          end, 0, Res1),
     {reply, {ok, {Count0, Count1}}, State};
+
+handle_call(close, _From, #state{backend_index   = MQDBIndexId,
+                                 backend_message = MQDBMessageId} = State) ->
+    ok = close_db(MQDBIndexId),
+    ok = close_db(MQDBMessageId),
+    {reply, ok, State};
 
 handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State}.
@@ -327,3 +342,31 @@ backend_db_info(Id, RootPath) ->
 
     [{MQDBIndexPath, MQDBIndexId},
      {MQDBMessagePath, MQDBMessageId}].
+
+
+%% @doc Close a db
+%% @private
+close_db(InstanseName) ->
+    case whereis(leo_backend_db_sup) of
+        Pid when is_pid(Pid) ->
+            List = supervisor:which_children(Pid),
+            ok = close_db(List, InstanseName),
+            ok;
+        _ ->
+            ok
+    end.
+
+%% @private
+close_db([],_) ->
+    ok;
+close_db([{Id,_Pid, worker, ['leo_backend_db_server' = Mod|_]}|T], InstanceName) ->
+    case (string:str(atom_to_list(Id),
+                     atom_to_list(InstanceName)) > 0) of
+        true ->
+            ok = Mod:close(Id);
+        false ->
+            void
+    end,
+    close_db(T, InstanceName);
+close_db([_|T], InstanceName) ->
+    close_db(T, InstanceName).
