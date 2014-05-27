@@ -53,10 +53,6 @@ mq_test_() ->
                           ]]}.
 
 setup() ->
-    meck:new(leo_util),
-    meck:expect(leo_util, clock, fun() -> 1000 end),
-    meck:expect(leo_util, now,   fun() -> 1000 end),
-
     application:start(leo_mq),
 
     S = os:cmd("pwd"),
@@ -73,14 +69,7 @@ teardown(Path) ->
 
 
 publish_(Path) ->
-    Ret =  leo_mq_api:new(?QUEUE_ID_REPLICATE_MISS, [{module, ?TEST_CLIENT_MOD},
-                                                     {root_path, Path},
-                                                     {num_of_batch_processes, 2},
-                                                     {max_interval, 500},
-                                                     {min_interval, 100}]),
-    ?assertEqual(ok, Ret),
-
-    meck:new(?TEST_CLIENT_MOD),
+    meck:new(?TEST_CLIENT_MOD, [non_strict]),
     meck:expect(?TEST_CLIENT_MOD, handle_call,
                 fun({consume, Id, MsgBin}) ->
                         ?debugVal({consume, Id, binary_to_term(MsgBin)}),
@@ -91,6 +80,12 @@ publish_(Path) ->
                         ?debugVal({publish, Id, Reply}),
                         ok
                 end),
+    Ret =  leo_mq_api:new(?QUEUE_ID_REPLICATE_MISS, [{module, ?TEST_CLIENT_MOD},
+                                                     {root_path, Path},
+                                                     {num_of_batch_processes, 2},
+                                                     {max_interval, 500},
+                                                     {min_interval, 100}]),
+    ?assertEqual(ok, Ret),
 
     ok = leo_mq_api:publish(
            ?QUEUE_ID_REPLICATE_MISS, list_to_binary(?TEST_KEY_1), term_to_binary(?TEST_META_1)),
