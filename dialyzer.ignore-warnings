@@ -1,0 +1,6 @@
+## Dialyzer - ignore warnings
+##
+##
+## leo_mq_server
+##
+The pattern 'false' can never match the type 'true'

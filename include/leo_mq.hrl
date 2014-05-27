@@ -36,19 +36,18 @@
 -define(MQ_SUBSCRIBE_FUN,          'subscribe').
 
 
--record(mq_properties, {module                 :: atom(),
-                        function               :: atom(),
-                        db_name                :: atom(),
-                        db_procs               :: integer(),
-                        root_path              :: string(),
-                        num_of_batch_processes :: pos_integer(),
-                        max_interval           :: integer(),
-                        min_interval           :: integer()
+-record(mq_properties, {module           :: atom(),
+                        function         :: atom(),
+                        db_name          :: atom(),
+                        db_procs = 1     :: integer(),
+                        root_path = []   :: string(),
+                        max_interval = 1 :: integer(),
+                        min_interval = 1 :: integer(),
+                        num_of_batch_processes = 1 :: pos_integer()
                        }).
 
--record(mq_log,
-        {type         :: atom(),
-         requested_at :: integer(),
-         format       :: string(),
-         message      :: string()}).
+-record(mq_log, {type             :: atom(),
+                 requested_at = 0 :: integer(),
+                 format  = []     :: string(),
+                 message = []     :: string()}).
 

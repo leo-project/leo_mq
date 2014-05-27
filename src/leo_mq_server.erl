@@ -57,13 +57,14 @@
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MIN,  5000).
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MAX, 10000).
 
--record(state, {id                     :: atom(),
-                module                 :: atom(),
-                max_interval           :: integer(),
-                min_interval           :: integer(),
-                num_of_batch_processes :: pos_integer(),
-                backend_index          :: atom(),
-                backend_message        :: atom()}).
+-record(state, {id               :: atom(),
+                module           :: atom(),
+                max_interval = 1 :: integer(),
+                min_interval = 1 :: integer(),
+                backend_index    :: atom(),
+                backend_message  :: atom(),
+                num_of_batch_processes = 1 :: pos_integer()
+               }).
 
 %%--------------------------------------------------------------------
 %% API
@@ -240,16 +241,15 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc Consume a message
 %%
 -spec(consume_fun(atom(), atom(), atom(), atom(), pos_integer()) ->
-             ok | {error, any()}).
-consume_fun(_, _, _, _, 0) ->
-    ok;
+             ok | not_found | {error, any()}).
 consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc) ->
     try
         case leo_backend_db_api:first(BackendIndex) of
             {ok, {K0, V0}} ->
                 case leo_backend_db_api:get(BackendMessage, V0) of
                     {ok, V1} ->
-                        {_, MsgBin} = binary_to_term(V1),
+                        Term = binary_to_term(V1),
+                        {_, MsgBin} = Term,
 
                         erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
                         catch leo_backend_db_api:delete(BackendIndex,   K0),
@@ -276,15 +276,14 @@ consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc) ->
 
 %% @doc Defer a cosuming message
 %%
--spec(defer_consume(atom(), integer(), integer()) ->
-             ok).
+-spec(defer_consume(atom(), pos_integer(), integer()) ->
+             {ok, timer:tref()} | {error,_}).
 defer_consume(Id, MaxTime, MinTime) ->
     Time0 = random:uniform(MaxTime),
     Time1 = case (Time0 < MinTime) of
                 true  -> MinTime;
                 false -> Time0
             end,
-
     timer:apply_after(Time1, ?MODULE, consume, [Id]).
 
 
@@ -346,6 +345,8 @@ backend_db_info(Id, RootPath) ->
 
 %% @doc Close a db
 %% @private
+-spec(close_db(atom()) ->
+             ok).
 close_db(InstanseName) ->
     case whereis(leo_backend_db_sup) of
         Pid when is_pid(Pid) ->

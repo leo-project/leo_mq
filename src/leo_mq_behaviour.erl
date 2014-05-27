@@ -27,17 +27,9 @@
 
 -author('Yosuke Hara').
 
--export([behaviour_info/1]).
-
-behaviour_info(callbacks) ->
-    [
-     %% init() -> ok.
-     {init, 0},
-
-     %% hande_call({publish, Id, reply}) -> ok.
-     %% hande_call({consume, Id, message_bin}) -> ok.
-     {handle_call, 1}
-    ];
-behaviour_info(_Other) ->
-    undefined.
-
+-callback(init() ->
+                 ok).
+-callback(handle_call(tuple()) ->
+                 ok).
+-callback(handle_call(atom(), atom(), any()) ->
+                 ok).

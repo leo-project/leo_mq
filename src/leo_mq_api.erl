@@ -49,49 +49,49 @@
 %%--------------------------------------------------------------------
 %% @doc
 %%
--spec(new(atom(), list()) ->
+-spec(new(atom(), list()|#mq_properties{}) ->
              ok | {error, any()}).
 new(Id, PropLists) when is_list(PropLists) == true ->
     case leo_misc:get_value(?MQ_PROP_MOD, PropLists, undefined) of
         undefined ->
             {error, badarg};
         Mod ->
-            new(Id,
-                #mq_properties
-                {module       = Mod,
-                 function     = leo_misc:get_value(?MQ_PROP_FUN,          PropLists, ?MQ_SUBSCRIBE_FUN),
-                 db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      PropLists, ?DEF_BACKEND_DB),
-                 db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     PropLists, ?DEF_BACKEND_DB_PROCS),
-                 root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    PropLists, ?DEF_DB_ROOT_PATH),
-                 num_of_batch_processes = leo_misc:get_value(?MQ_PROP_NUM_OF_BATCH_PROC, PropLists, ?DEF_CONSUME_NUM_OF_BATCH_PROC),
-                 max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, PropLists, ?DEF_CONSUME_MAX_INTERVAL),
-                 min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, PropLists, ?DEF_CONSUME_MIN_INTERVAL)
-                })
+            new(Id, #mq_properties{
+                       module       = Mod,
+                       function     = leo_misc:get_value(?MQ_PROP_FUN,          PropLists, ?MQ_SUBSCRIBE_FUN),
+                       db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      PropLists, ?DEF_BACKEND_DB),
+                       db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     PropLists, ?DEF_BACKEND_DB_PROCS),
+                       root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    PropLists, ?DEF_DB_ROOT_PATH),
+                       num_of_batch_processes = leo_misc:get_value(?MQ_PROP_NUM_OF_BATCH_PROC,
+                                                                   PropLists, ?DEF_CONSUME_NUM_OF_BATCH_PROC),
+                       max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, PropLists, ?DEF_CONSUME_MAX_INTERVAL),
+                       min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, PropLists, ?DEF_CONSUME_MIN_INTERVAL)
+                      })
     end;
 
 new(Id, Props) ->
     new(leo_mq_sup, Id, Props).
 
-new(RefSup, Id, Props0) ->
-    Props1 =
-        case is_list(Props0) of
+new(RefSup, Id, Props) ->
+    Props_1 =
+        case is_list(Props) of
             true ->
                 #mq_properties
-                    {module       = leo_misc:get_value(?MQ_PROP_MOD,          Props0, undefined),
-                     function     = leo_misc:get_value(?MQ_PROP_FUN,          Props0, ?MQ_SUBSCRIBE_FUN),
-                     db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Props0, ?DEF_BACKEND_DB),
-                     db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props0, ?DEF_BACKEND_DB_PROCS),
-                     root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Props0, ?DEF_DB_ROOT_PATH),
-                     num_of_batch_processes = leo_misc:get_value(?MQ_PROP_NUM_OF_BATCH_PROC, Props0, ?DEF_CONSUME_NUM_OF_BATCH_PROC),
-                     max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, Props0, ?DEF_CONSUME_MAX_INTERVAL),
-                     min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, Props0, ?DEF_CONSUME_MIN_INTERVAL)
+                    {module       = leo_misc:get_value(?MQ_PROP_MOD,          Props, undefined),
+                     function     = leo_misc:get_value(?MQ_PROP_FUN,          Props, ?MQ_SUBSCRIBE_FUN),
+                     db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Props, ?DEF_BACKEND_DB),
+                     db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props, ?DEF_BACKEND_DB_PROCS),
+                     root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Props, ?DEF_DB_ROOT_PATH),
+                     num_of_batch_processes = leo_misc:get_value(?MQ_PROP_NUM_OF_BATCH_PROC, Props, ?DEF_CONSUME_NUM_OF_BATCH_PROC),
+                     max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, Props, ?DEF_CONSUME_MAX_INTERVAL),
+                     min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, Props, ?DEF_CONSUME_MIN_INTERVAL)
                     };
             false ->
-                Props0
+                Props
         end,
 
     ChildSpec = {Id,
-                 {leo_mq_server, start_link, [Id, Props1]},
+                 {leo_mq_server, start_link, [Id, Props_1]},
                  permanent, 2000, worker, [leo_mq_server]},
 
     case supervisor:start_child(RefSup, ChildSpec) of
