@@ -33,7 +33,7 @@
 -export([new/2, new/3, publish/3, status/1]).
 
 -define(APP_NAME,      'leo_mq').
--define(DEF_DB_MODULE, 'leo_mq_eleveldb').
+-define(DEF_DB_MODULE, 'leo_mq_eleveldb'). % Not used in anywhere.
 
 -define(DEF_BACKEND_DB_PROCS, 3).
 -define(DEF_BACKEND_DB,      'bitcask').
