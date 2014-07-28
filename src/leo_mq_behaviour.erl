@@ -28,8 +28,8 @@
 -author('Yosuke Hara').
 
 -callback(init() ->
-                 ok).
+                 ok | {error, any()}).
 -callback(handle_call(tuple()) ->
-                 ok).
+                 ok | {error, any()}).
 -callback(handle_call(atom(), atom(), any()) ->
-                 ok).
+                 ok | {error, any()}).
