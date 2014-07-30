@@ -23,7 +23,7 @@
 {application, leo_mq,
  [
   {description, "Leo MQ"},
-  {vsn, "1.0.7"},
+  {vsn, "1.0.8"},
   {id, "leo_mq"},
   {registered,   []},
   {applications, [kernel, stdlib]},
