@@ -20,7 +20,8 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo MQ  - Behaviour.
-%% @doc
+%% @doc leo_mq's behaviour
+%% @reference [https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_behaviour.erl]
 %% @end
 %%======================================================================
 -module(leo_mq_behaviour).

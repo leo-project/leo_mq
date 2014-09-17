@@ -20,7 +20,8 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo MQ - Server
-%% @doc
+%% @doc The gen_server process for the process of a mq as part of a supervision tree
+%% @reference [https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_server.erl]
 %% @end
 %%======================================================================
 -module(leo_mq_server).

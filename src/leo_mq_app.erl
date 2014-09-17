@@ -20,7 +20,8 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo MQ - Application
-%% @doc
+%% @doc leo_mq's application
+%% @reference [https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_app.erl]
 %% @end
 %%======================================================================
 -module(leo_mq_app).

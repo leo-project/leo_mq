@@ -20,7 +20,8 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo MQ - Supervisor.
-%% @doc
+%% @doc leo_mq's supervisor
+%% @reference [https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_sup.erl]
 %% @end
 %%======================================================================
 -module(leo_mq_sup).
@@ -38,17 +39,14 @@
 %%-----------------------------------------------------------------------
 %% External API
 %%-----------------------------------------------------------------------
-%% @spec () -> ok
-%% @doc start link...
+%% @doc Creates a supervisor process as part of a supervision tree
 %% @end
 start_link() ->
     Res = supervisor:start_link({local, ?MODULE}, ?MODULE, []),
     after_proc(Res).
 
 
-%% @spec () -> ok |
-%%             not_started
-%% @doc stop process.
+%% @doc Stop process
 %% @end
 stop() ->
     case whereis(?MODULE) of
@@ -62,10 +60,8 @@ stop() ->
 %% ---------------------------------------------------------------------
 %% Callbacks
 %% ---------------------------------------------------------------------
-%% @spec (Params) -> ok
-%% @doc stop process.
+%% @doc supervisor callback - Module:init(Args) -> Result
 %% @end
-%% @private
 init([]) ->
     {ok, {{one_for_one, 5, 60}, []}}.
 
@@ -73,7 +69,7 @@ init([]) ->
 %% ---------------------------------------------------------------------
 %% Inner Function(s)
 %% ---------------------------------------------------------------------
-%% @doc After sup launch processing
+%% @doc Processing of the sup after launched
 %% @private
 -spec(after_proc({ok, pid()} | {error, any()}) ->
              {ok, pid()} | {error, any()}).
@@ -91,7 +87,7 @@ after_proc({ok, RefSup}) ->
                         Pid;
                     {error, Cause} ->
                         error_logger:error_msg("~p,~p,~p,~p~n",
-                                               [{module, ?MODULE_STRING}, {function, "start_child/2"},
+                                               [{module, ?MODULE_STRING}, {function, "after_proc/2"},
                                                 {line, ?LINE}, {body, "Could NOT start backend-db sup"}]),
                         exit(Cause)
                 end;
@@ -100,11 +96,11 @@ after_proc({ok, RefSup}) ->
         end,
     ok = application:set_env(leo_mq, backend_db_sup_ref, RefBDBSup),
     {ok, RefSup};
-
 after_proc(Error) ->
     Error.
 
-%% @doc Close a internal databases
+
+%% @doc Close the internal databases
 %% @private
 close_db([]) ->
     ok;
