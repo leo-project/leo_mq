@@ -47,51 +47,36 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-%% @doc
+%% @doc Create a new message-queue server
 %%
--spec(new(atom(), list()|#mq_properties{}) ->
-             ok | {error, any()}).
-new(Id, PropLists) when is_list(PropLists) == true ->
-    case leo_misc:get_value(?MQ_PROP_MOD, PropLists, undefined) of
+-spec(new(Id, Properties) ->
+             ok | {error, any()} when Id::atom(),
+                                      Properties::[atom()]|#mq_properties{}).
+new(Id, Properties) when is_list(Properties) ->
+    case leo_misc:get_value(?MQ_PROP_MOD, Properties, undefined) of
         undefined ->
             {error, badarg};
         Mod ->
-            new(Id, #mq_properties{
-                       module       = Mod,
-                       function     = leo_misc:get_value(?MQ_PROP_FUN,          PropLists, ?MQ_SUBSCRIBE_FUN),
-                       db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      PropLists, ?DEF_BACKEND_DB),
-                       db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     PropLists, ?DEF_BACKEND_DB_PROCS),
-                       root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    PropLists, ?DEF_DB_ROOT_PATH),
-                       num_of_batch_processes = leo_misc:get_value(?MQ_PROP_NUM_OF_BATCH_PROC,
-                                                                   PropLists, ?DEF_CONSUME_NUM_OF_BATCH_PROC),
-                       max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, PropLists, ?DEF_CONSUME_MAX_INTERVAL),
-                       min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, PropLists, ?DEF_CONSUME_MIN_INTERVAL)
-                      })
+            new(Id, prop_list_to_mq_properties(Mod, Properties))
     end;
+new(Id, Properties) ->
+    new(leo_mq_sup, Id, Properties).
 
-new(Id, Props) ->
-    new(leo_mq_sup, Id, Props).
-
-new(RefSup, Id, Props) ->
-    Props_1 =
-        case is_list(Props) of
+-spec(new(RefSup, Id, Properties) ->
+             ok | {error, any()} when RefSup::atom()|pid(),
+                                      Id::atom(),
+                                      Properties::[atom()]|#mq_properties{}).
+new(RefSup, Id, Properties) ->
+    Properties_1 =
+        case is_list(Properties) of
             true ->
-                #mq_properties
-                    {module       = leo_misc:get_value(?MQ_PROP_MOD,          Props, undefined),
-                     function     = leo_misc:get_value(?MQ_PROP_FUN,          Props, ?MQ_SUBSCRIBE_FUN),
-                     db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Props, ?DEF_BACKEND_DB),
-                     db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props, ?DEF_BACKEND_DB_PROCS),
-                     root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Props, ?DEF_DB_ROOT_PATH),
-                     num_of_batch_processes = leo_misc:get_value(?MQ_PROP_NUM_OF_BATCH_PROC, Props, ?DEF_CONSUME_NUM_OF_BATCH_PROC),
-                     max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, Props, ?DEF_CONSUME_MAX_INTERVAL),
-                     min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, Props, ?DEF_CONSUME_MIN_INTERVAL)
-                    };
+                prop_list_to_mq_properties(undefined, Properties);
             false ->
-                Props
+                Properties
         end,
 
     ChildSpec = {Id,
-                 {leo_mq_server, start_link, [Id, Props_1]},
+                 {leo_mq_server, start_link, [Id, Properties_1]},
                  permanent, 2000, worker, [leo_mq_server]},
 
     case supervisor:start_child(RefSup, ChildSpec) of
@@ -109,19 +94,37 @@ new(RefSup, Id, Props) ->
             end
     end.
 
+%% @private
+-spec(prop_list_to_mq_properties(Mod, Properties) ->
+             #mq_properties{} when Mod::module(),
+                                   Properties::[tuple()]).
+prop_list_to_mq_properties(Mod, Properties) ->
+    #mq_properties
+        {module       = leo_misc:get_value(?MQ_PROP_MOD,          Properties, Mod),
+         function     = leo_misc:get_value(?MQ_PROP_FUN,          Properties, ?MQ_SUBSCRIBE_FUN),
+         db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Properties, ?DEF_BACKEND_DB),
+         db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Properties, ?DEF_BACKEND_DB_PROCS),
+         root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Properties, ?DEF_DB_ROOT_PATH),
+         num_of_batch_processes = leo_misc:get_value(?MQ_PROP_NUM_OF_BATCH_PROC, Properties, ?DEF_CONSUME_NUM_OF_BATCH_PROC),
+         max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, Properties, ?DEF_CONSUME_MAX_INTERVAL),
+         min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, Properties, ?DEF_CONSUME_MIN_INTERVAL)
+        }.
 
-%% @doc publish a message into the queue.
+
+%% @doc Publish a message into the queue
 %%
--spec(publish(atom(), binary(), binary()) ->
-             ok | {error, any()}).
+-spec(publish(Id, KeyBin, MessageBin) ->
+             ok | {error, any()} when Id::atom(),
+                                      KeyBin::binary(),
+                                      MessageBin::binary()).
 publish(Id, KeyBin, MessageBin) ->
     leo_mq_server:publish(Id, KeyBin, MessageBin).
 
 
-%% @doc get state from the queue.
+%% @doc Retrieve a current state from the queue
 %%
--spec(status(atom()) ->
-             {ok, list()}).
+-spec(status(Id) ->
+             {ok, list()} when Id::atom()).
 status(Id) ->
     leo_mq_server:status(Id).
 
