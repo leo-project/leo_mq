@@ -20,7 +20,8 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo MQ - Server
-%% @doc
+%% @doc The gen_server process for the process of a mq as part of a supervision tree
+%% @reference [https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_server.erl]
 %% @end
 %%======================================================================
 -module(leo_mq_server).
@@ -69,12 +70,16 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-%% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
-%% Description: Starts the server
+%% @doc Creates the gen_server process as part of a supervision tree
+-spec(start_link(Id, Props) ->
+             {ok,pid()} | ignore | {error, any()} when Id::atom(),
+                                                       Props::[tuple()]).
 start_link(Id, Props) ->
     gen_server:start_link({local, Id}, ?MODULE, [Id, Props], []).
 
-
+%% @doc Close the process
+-spec(stop(Id) ->
+             ok | {error, any()} when Id::atom()).
 stop(Id) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "stop/1"},
@@ -82,32 +87,36 @@ stop(Id) ->
     gen_server:call(Id, stop, ?DEF_TIMEOUT).
 
 
-%% @doc register queuing data.
+%% @doc Register a queuing data.
 %%
--spec(publish(atom(), binary(), binary()) -> ok | {error, any()}).
+-spec(publish(Id, KeyBin, MessageBin) ->
+             ok | {error, any()} when Id::atom(),
+                                      KeyBin::binary(),
+                                      MessageBin::binary()).
 publish(Id, KeyBin, MessageBin) ->
     gen_server:cast(Id, {publish, KeyBin, MessageBin}).
 
 
-%% @doc consume a message from the queue.
+%% @doc Consume a message from the queue.
 %%
--spec(consume(atom()) -> ok | {error, any()}).
+-spec(consume(Id) ->
+             ok | {error, any()} when Id::atom()).
 consume(Id) ->
     gen_server:cast(Id, consume).
 
 
-%% @doc get state from the queue.
+%% @doc Retrieve the current state from the queue.
 %%
--spec(status(atom()) ->
-             {ok, list()}).
+-spec(status(Id) ->
+             {ok, list()} when Id::atom()).
 status(Id) ->
     gen_server:call(Id, status, ?DEF_TIMEOUT).
 
 
 %% @doc get state from the queue.
 %%
--spec(close(atom()) ->
-             ok).
+-spec(close(Id) ->
+             ok when Id::atom()).
 close(Id) ->
     gen_server:call(Id, close, ?DEF_TIMEOUT).
 
@@ -115,11 +124,7 @@ close(Id) ->
 %%--------------------------------------------------------------------
 %% GEN_SERVER CALLBACKS
 %%--------------------------------------------------------------------
-%% Function: init(Args) -> {ok, State}          |
-%%                         {ok, State, Timeout} |
-%%                         ignore               |
-%%                         {stop, Reason}
-%% Description: Initiates the server
+%% @doc gen_server callback - Module:init(Args) -> Result
 init([Id, #mq_properties{module                 = Mod,
                          db_name                = DBName,
                          db_procs               = DBProcs,
@@ -153,6 +158,8 @@ init([Id, #mq_properties{module                 = Mod,
             {stop, "Not initialized"}
     end.
 
+
+%% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
 handle_call(status, _From, #state{backend_index   = MQDBIndexId,
                                   backend_message = MQDBMessageId} = State) ->
     Res0 = leo_backend_db_api:status(MQDBIndexId),
@@ -176,8 +183,7 @@ handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State}.
 
 
-%% @doc Publish - Msg:"REPLICATE DATA".
-%%
+%% @doc gen_server callback - Module:handle_cast(Request, State) -> Result
 handle_cast({publish, KeyBin, MessageBin}, State = #state{id     = Id,
                                                           module = Mod}) ->
     Reply = put_message(KeyBin, {leo_date:clock(), MessageBin}, State),
@@ -207,21 +213,18 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 
-%% Function: handle_info(Info, State) -> {noreply, State}          |
-%%                                       {noreply, State, Timeout} |
-%%                                       {stop, Reason, State}
-%% Description: Handling all non call/cast messages
-%% handle_info({_Label, {_From, MRef}, get_modules}, State) ->
-%%     {noreply, State};
+%% @doc gen_server callback - Module:handle_info(Info, State) -> Result
 handle_info(_Info, State) ->
     {noreply, State}.
 
 
-%% Function: terminate(Reason, State) -> void()
-%% Description: This function is called by a gen_server when it is about to
+%% @doc This function is called by a gen_server when it is about to
 %% terminate. It should be the opposite of Module:init/1 and do any necessary
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
+%% <p>
+%% gen_server callback - Module:terminate(Reason, State)
+%% </p>
 terminate(_Reason, #state{id = Id}) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/1"},
@@ -229,8 +232,10 @@ terminate(_Reason, #state{id = Id}) ->
     ok.
 
 
-%% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% Description: Convert process state when code is changed
+%% @doc Convert process state when code is changed
+%% <p>
+%% gen_server callback - Module:code_change(OldVsn, State, Extra) -> {ok, NewState} | {error, Reason}.
+%% </p>
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
