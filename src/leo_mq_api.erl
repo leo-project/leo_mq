@@ -21,7 +21,7 @@
 %% ---------------------------------------------------------------------
 %% Leo MQ - API
 %% @doc leo_mq's API
-%% @reference [https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_api.erl]
+%% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_api.erl
 %% @end
 %%======================================================================
 -module(leo_mq_api).

@@ -21,7 +21,7 @@
 %% ---------------------------------------------------------------------
 %% Leo MQ - Supervisor.
 %% @doc leo_mq's supervisor
-%% @reference [https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_sup.erl]
+%% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_sup.erl
 %% @end
 %%======================================================================
 -module(leo_mq_sup).
