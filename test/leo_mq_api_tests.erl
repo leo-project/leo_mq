@@ -91,10 +91,8 @@ publish_(Path) ->
            ?QUEUE_ID_REPLICATE_MISS, list_to_binary(?TEST_KEY_1), term_to_binary(?TEST_META_1)),
     timer:sleep(500),
 
-    {ok, {C0, C1}} = leo_mq_api:status(?QUEUE_ID_REPLICATE_MISS),
-    ?debugVal({C0, C1}),
-    ?assertEqual(0, C0),
-    ?assertEqual(0, C1),
+    {ok, Count} = leo_mq_api:status(?QUEUE_ID_REPLICATE_MISS),
+    ?assertEqual(0, Count),
     ok.
 
 -endif.

@@ -60,11 +60,11 @@
 
 -record(state, {id               :: atom(),
                 module           :: atom(),
-                max_interval = 1 :: integer(),
-                min_interval = 1 :: integer(),
-                backend_index    :: atom(),
+                max_interval = 1 :: non_neg_integer(),
+                min_interval = 1 :: non_neg_integer(),
                 backend_message  :: atom(),
-                num_of_batch_processes = 1 :: pos_integer()
+                num_of_batch_processes = 1 :: pos_integer(),
+                count = 0 :: non_neg_integer()
                }).
 
 %%--------------------------------------------------------------------
@@ -132,26 +132,26 @@ init([Id, #mq_properties{module                 = Mod,
                          num_of_batch_processes = NumOfBatchProc,
                          max_interval           = MaxInterval,
                          min_interval           = MinInterval}]) ->
-    [{MQDBIndexPath,   MQDBIndexId},
-     {MQDBMessagePath, MQDBMessageId}] = backend_db_info(Id, RootPath),
 
     case application:get_env(leo_mq, backend_db_sup_ref) of
         {ok, Pid} ->
-            Res0 = leo_backend_db_sup:start_child(Pid, MQDBIndexId,
-                                                  DBProcs, DBName, MQDBIndexPath),
-            Res1 = leo_backend_db_sup:start_child(Pid, MQDBMessageId,
-                                                  DBProcs, DBName, MQDBMessagePath),
-            case (Res0 == ok andalso Res1 == ok) of
-                true ->
+            {MQDBMessagePath, MQDBMessageId} = backend_db_info(Id, RootPath),
+
+            case leo_backend_db_sup:start_child(
+                   Pid, MQDBMessageId,
+                   DBProcs, DBName, MQDBMessagePath) of
+                ok ->
+                    Count = 0, %% @TODO:Retrieve total num of message from the backend-db
                     defer_consume(Id, MaxInterval, MinInterval),
                     {ok, #state{id                     = Id,
                                 module                 = Mod,
                                 num_of_batch_processes = NumOfBatchProc,
                                 max_interval           = MaxInterval,
                                 min_interval           = MinInterval,
-                                backend_index          = MQDBIndexId,
-                                backend_message        = MQDBMessageId}};
-                false ->
+                                backend_message        = MQDBMessageId,
+                                count = Count
+                               }};
+                _ ->
                     {stop, "Failure backend_db launch"}
             end;
         _Error ->
@@ -160,22 +160,16 @@ init([Id, #mq_properties{module                 = Mod,
 
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
-handle_call(status, _From, #state{backend_index   = MQDBIndexId,
-                                  backend_message = MQDBMessageId} = State) ->
-    Res0 = leo_backend_db_api:status(MQDBIndexId),
-    Res1 = leo_backend_db_api:status(MQDBMessageId),
+handle_call(status, _From, #state{backend_message = MQDBMessageId} = State) ->
+    Res = leo_backend_db_api:status(MQDBMessageId),
+    Count = lists:foldl(fun([{key_count, KC}, _], Acc) ->
+                                Acc + KC;
+                            (_, Acc) ->
+                                Acc
+                         end, 0, Res),
+    {reply, {ok, Count}, State};
 
-    Count0 = lists:foldl(fun([{key_count, KC0}, _], Acc0) -> Acc0 + KC0;
-                            (_, Acc0) -> Acc0
-                         end, 0, Res0),
-    Count1 = lists:foldl(fun([{key_count, KC1}, _], Acc1) -> Acc1 + KC1;
-                            (_, Acc1) -> Acc1
-                         end, 0, Res1),
-    {reply, {ok, {Count0, Count1}}, State};
-
-handle_call(close, _From, #state{backend_index   = MQDBIndexId,
-                                 backend_message = MQDBMessageId} = State) ->
-    ok = close_db(MQDBIndexId),
+handle_call(close, _From, #state{backend_message = MQDBMessageId} = State) ->
     ok = close_db(MQDBMessageId),
     {reply, ok, State};
 
@@ -186,9 +180,8 @@ handle_call(stop, _From, State) ->
 %% @doc gen_server callback - Module:handle_cast(Request, State) -> Result
 handle_cast({publish, KeyBin, MessageBin}, State = #state{id     = Id,
                                                           module = Mod}) ->
-    Reply = put_message(KeyBin, {leo_date:clock(), MessageBin}, State),
+    Reply = put_message(KeyBin, MessageBin, State),
     catch erlang:apply(Mod, handle_call, [{publish, Id, Reply}]),
-
     {noreply, State};
 
 
@@ -197,9 +190,8 @@ handle_cast(consume, #state{id                     = Id,
                             num_of_batch_processes = NumOfBatchProc,
                             max_interval           = MaxInterval,
                             min_interval           = MinInterval,
-                            backend_index          = BackendIndex,
                             backend_message        = BackendMessage} = State) ->
-    case consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc) of
+    case consume_fun(Id, Mod, BackendMessage, NumOfBatchProc) of
         not_found ->
             defer_consume(Id, ?DEF_AFTER_NOT_FOUND_INTERVAL_MAX,
                           ?DEF_AFTER_NOT_FOUND_INTERVAL_MIN),
@@ -245,28 +237,28 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% @doc Consume a message
 %%
--spec(consume_fun(atom(), atom(), atom(), atom(), pos_integer()) ->
+-spec(consume_fun(atom(), atom(), atom(), pos_integer()) ->
              ok | not_found | {error, any()}).
-consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc) ->
+consume_fun(Id, Mod, BackendMessage, NumOfBatchProc) ->
     try
-        case leo_backend_db_api:first(BackendIndex) of
-            {ok, {K0, V0}} ->
-                case leo_backend_db_api:get(BackendMessage, V0) of
-                    {ok, V1} ->
-                        Term = binary_to_term(V1),
-                        {_, MsgBin} = Term,
+        case leo_backend_db_api:first(BackendMessage) of
+            {ok, {Key, Val}} ->
+                %% Taking measure of queue-msg migration
+                %% for previsous 1.2.0-pre1
+                MsgTerm = binary_to_term(Val),
+                MsgBin = case is_tuple(MsgTerm) of
+                             true when is_integer(element(1, MsgTerm)) andalso
+                                       is_binary(element(2, MsgTerm)) ->
+                                 element(2, MsgTerm);
+                             false ->
+                                 Val
+                         end,
 
-                        erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
-                        catch leo_backend_db_api:delete(BackendIndex,   K0),
-                        catch leo_backend_db_api:delete(BackendMessage, V0),
-                        consume_fun(Id, Mod, BackendIndex, BackendMessage, NumOfBatchProc - 1);
-                    not_found = Cause ->
-                        {error, Cause};
-                    Error ->
-                        Error
-                end;
+                erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
+                catch leo_backend_db_api:delete(BackendMessage, Key),
+                consume_fun(Id, Mod, BackendMessage, NumOfBatchProc - 1);
             not_found = Cause ->
-                Cause;
+                {error, Cause};
             Error ->
                 Error
         end
@@ -296,23 +288,14 @@ defer_consume(Id, MaxTime, MinTime) ->
 %%
 -spec(put_message(binary(), tuple(), #state{}) ->
              ok | {error, any()}).
-put_message(MsgKeyBin, {MsgId, _MsgBin} = MsgTuple, #state{backend_index   = BackendIndex,
-                                                           backend_message = BackendMessage}) ->
-    MsgIdBin   = term_to_binary(MsgId),
-    MessageBin = term_to_binary(MsgTuple),
-
+put_message(MsgKeyBin, MsgBin, #state{backend_message = BackendMessage}) ->
     try
         case leo_backend_db_api:get(BackendMessage, MsgKeyBin) of
             not_found ->
-                case leo_backend_db_api:put(BackendIndex, MsgIdBin, MsgKeyBin) of
+                case leo_backend_db_api:put(
+                       BackendMessage, MsgKeyBin, MsgBin) of
                     ok ->
-                        case leo_backend_db_api:put(BackendMessage, MsgKeyBin, MessageBin) of
-                            ok ->
-                                ok;
-                            Error ->
-                                leo_backend_db_api:delete(BackendIndex, MsgIdBin),
-                                Error
-                        end;
+                        ok;
                     Error ->
                         Error
                 end;
@@ -322,7 +305,8 @@ put_message(MsgKeyBin, {MsgId, _MsgBin} = MsgTuple, #state{backend_index   = Bac
     catch
         _ : Cause ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "put_message/3"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "put_message/3"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -337,15 +321,9 @@ backend_db_info(Id, RootPath) ->
                       true  -> RootPath;
                       false ->  RootPath ++ "/"
                   end,
-
-    MQDBIndexPath   = NewRootPath ++ ?DEF_DB_PATH_INDEX,
     MQDBMessagePath = NewRootPath ++ ?DEF_DB_PATH_MESSAGE,
-
-    MQDBIndexId   = list_to_atom(atom_to_list(Id) ++ "_index"),
     MQDBMessageId = list_to_atom(atom_to_list(Id) ++ "_message"),
-
-    [{MQDBIndexPath, MQDBIndexId},
-     {MQDBMessagePath, MQDBMessageId}].
+    {MQDBMessagePath, MQDBMessageId}.
 
 
 %% @doc Close a db
