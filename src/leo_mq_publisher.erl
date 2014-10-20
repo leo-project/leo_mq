@@ -154,11 +154,8 @@ handle_call(stop, _From, State) ->
 handle_cast({publish, KeyBin, MessageBin}, State = #state{id = Id,
                                                           mq_properties = MQProps}) ->
     Mod = MQProps#mq_properties.mod_callback,
-    ConsumerId = MQProps#mq_properties.consumer_id,
-
     Reply = put_message(KeyBin, MessageBin, State),
     catch erlang:apply(Mod, handle_call, [{publish, Id, Reply}]),
-    ok = leo_mq_consumer:run(ConsumerId),
     {noreply, State};
 
 handle_cast(_Msg, State) ->

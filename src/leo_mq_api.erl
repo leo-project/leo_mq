@@ -31,7 +31,9 @@
 -include("leo_mq.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([new/2, new/3, publish/3, status/1]).
+-export([new/2, new/3,
+         publish/3, suspend/1, resume/1,
+         status/1]).
 
 -define(APP_NAME,      'leo_mq').
 -define(DEF_DB_MODULE, 'leo_mq_eleveldb'). % Not used in anywhere.
@@ -88,9 +90,7 @@ new(RefSup, Id, Props) ->
 prop_list_to_mq_properties(Id, Mod, Props) ->
     Props_1 = #mq_properties{
                  publisher_id = Id,
-                 consumer_id  =
-                     list_to_atom(
-                       lists:append([atom_to_list(Id), "_consumer"])),
+                 consumer_id  = ?consumer_id(Id),
                  mod_callback = leo_misc:get_value(?MQ_PROP_MOD,          Props, Mod),
                  db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Props, ?DEF_BACKEND_DB),
                  db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props, ?DEF_BACKEND_DB_PROCS),
@@ -117,6 +117,24 @@ prop_list_to_mq_properties(Id, Mod, Props) ->
                                       MessageBin::binary()).
 publish(Id, KeyBin, MessageBin) ->
     leo_mq_publisher:publish(Id, KeyBin, MessageBin).
+
+
+%% @doc Suspend consumption of messages in the queue
+%%
+-spec(suspend(Id) ->
+             ok | {error, any()} when Id::atom()).
+suspend(Id) ->
+    Id_1 = ?consumer_id(Id),
+    leo_mq_consumer:suspend(Id_1).
+
+
+%% @doc Resume consumption of messages in the queue
+%%
+-spec(resume(Id) ->
+             ok | {error, any()} when Id::atom()).
+resume(Id) ->
+    Id_1 = ?consumer_id(Id),
+    leo_mq_consumer:resume(Id_1).
 
 
 %% @doc Retrieve a current state from the queue

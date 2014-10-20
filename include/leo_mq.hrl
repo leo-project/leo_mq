@@ -83,6 +83,15 @@
                               ?EVENT_STATE).
 
 
+-define(DEF_CHECK_MAX_INTERVAL_1, timer:seconds(1)).
+-define(DEF_CHECK_MIN_INTERVAL_1, timer:seconds(0)).
+-define(DEF_CHECK_MAX_INTERVAL_2, timer:seconds(30)).
+-define(DEF_CHECK_MIN_INTERVAL_2, timer:seconds(10)).
+
+-define(consumer_id(Id),
+        list_to_atom(
+          lists:append([atom_to_list(Id), "_consumer"]))).
+
 %% Retrieve the backend-db info
 -define(DEF_DB_PATH_INDEX,   "index"  ).
 -define(DEF_DB_PATH_MESSAGE, "message").

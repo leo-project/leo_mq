@@ -133,8 +133,7 @@ finish(Id) ->
 -spec(state(Id) ->
              {ok, state_of_compaction()} when Id::atom()).
 state(Id) ->
-    gen_fsm:sync_send_all_state_event(
-      Id, state, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_STATE}, ?DEF_TIMEOUT).
 
 
 %%====================================================================
@@ -142,7 +141,9 @@ state(Id) ->
 %%====================================================================
 %% @doc Initiates the server
 %%
-init([Id, PublisherId, Props]) ->    
+init([Id, PublisherId, Props]) ->
+    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_1,
+                      ?DEF_CHECK_MIN_INTERVAL_1),
     {ok, ?ST_IDLING, #state{id = Id,
                             publisher_id  = PublisherId,
                             mq_properties = Props}}.
@@ -201,6 +202,10 @@ idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id} = State) ->
     gen_fsm:reply(From, ok),
     ok = run(Id),
     {next_state, NextStatus, State_1};
+idling(#event_info{event = ?EVENT_STATE}, From, State) ->
+    NextStatus = ?ST_IDLING,
+    gen_fsm:reply(From, {ok, NextStatus}),
+    {next_state, NextStatus, State};
 idling(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     NextStatus = ?ST_IDLING,
@@ -209,12 +214,9 @@ idling(_, From, State) ->
 -spec(idling(EventInfo, State) ->
              {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
                                                   State::#state{}).
-idling(#event_info{event = ?EVENT_RUN}, State) ->
+idling(#event_info{event = ?EVENT_RUN}, #state{id = Id} = State) ->
     NextStatus = ?ST_RUNNING,
-    _ = consume(State),
-    {next_state, NextStatus, State#state{status = NextStatus}};
-idling(#event_info{event = ?EVENT_STATE}, State) ->
-    NextStatus = ?ST_IDLING,
+    ok = run(Id),
     {next_state, NextStatus, State#state{status = NextStatus}};
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
@@ -232,7 +234,7 @@ running(#event_info{event = ?EVENT_RUN},
                                   min_interval = MinInterval}} = State) ->
     NextStatus = ?ST_RUNNING,
     State_2 =
-        case catch consume(State) of
+        case consume(State) of
             %% Execute the data-compaction repeatedly
             ok ->
                 Time = interval(MinInterval, MaxInterval),
@@ -261,26 +263,27 @@ running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_FINISH}, State) ->
+running(#event_info{event = ?EVENT_FINISH}, #state{id = Id} = State) ->
     %% Notify a message to the compaction-manager
     NextStatus = ?ST_IDLING,
+    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
+                      ?DEF_CHECK_MIN_INTERVAL_2),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          start_datetime = 0}};
-
-running(#event_info{event = ?EVENT_STATE}, State) ->
-    NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{status = NextStatus}};
 running(_, State) ->
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
-
 -spec(running( _, _, #state{}) ->
-             {next_state, ?ST_SUSPENDING|?ST_RUNNING, #state{}}).
-running(_, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
+             {next_state, ?ST_RUNNING, #state{}}).
+running(#event_info{event = ?EVENT_STATE}, From, State) ->
     NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    gen_fsm:reply(From, {ok, NextStatus}),
+    {next_state, NextStatus, State};
+running(_, From, State) ->
+    NextStatus = ?ST_RUNNING,
+    gen_fsm:reply(From, {error, badstate}),
+    {next_state, NextStatus, State}.
 
 
 %% @doc State of 'suspend'
@@ -308,11 +311,14 @@ suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id} = State) ->
 
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}};
-
-suspending(_, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
+suspending(#event_info{event = ?EVENT_STATE}, From, State) ->
     NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    gen_fsm:reply(From, {ok, NextStatus}),
+    {next_state, NextStatus, State#state{status = NextStatus}};
+suspending(_Other, From, State) ->
+    NextStatus = ?ST_SUSPENDING,
+    gen_fsm:reply(From, {error, badstate}),
+    {next_state, NextStatus, State}.
 
 
 %%--------------------------------------------------------------------

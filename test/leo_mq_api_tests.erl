@@ -106,17 +106,16 @@ publish_(Path) ->
                             _ ->
                                 throw({error, invalid_message})
                         end;
-                   ({publish, Id, Reply}) ->
-                        ?debugVal({publish, Id, Reply}),
+                   ({publish,_Id,_Reply}) ->
+                        %% ?debugVal({publish, Id, Reply}),
                         ok
                 end),
     Ret =  leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
                                                      {root_path, Path},
-                                                     {num_of_batch_processes, 2},
+                                                     {num_of_batch_processes, 10},
                                                      {max_interval, 500},
                                                      {min_interval, 100}]),
     ?assertEqual(ok, Ret),
-
     ok = leo_mq_api:publish(
            ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_1), term_to_binary(?TEST_META_1)),
     ok = leo_mq_api:publish(
@@ -127,11 +126,96 @@ publish_(Path) ->
            ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_4), term_to_binary(?TEST_META_4)),
     ok = leo_mq_api:publish(
            ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_5), term_to_binary(?TEST_META_5)),
-    timer:sleep(3000),
+    timer:sleep(1000),
+    ok = check_state(),
 
     {ok, Count} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?debugVal(Count),
     ?assertEqual(0, Count),
-    {ok, ?ST_IDLING} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
     ok.
+
+
+check_state() ->
+    timer:sleep(100),
+    case leo_mq_consumer:state(?QUEUE_ID_CONSUMER) of
+        {ok, ?ST_IDLING} ->
+            ok;
+        {ok,_Other} ->
+            ?debugVal(_Other),
+            check_state()
+    end.
+
+
+
+%% =========================================================
+%%
+%% =========================================================
+pub_sub_test_() ->
+
+    {setup,
+     fun ( ) ->
+             ?debugVal("### MQ.START ###"),
+             application:start(leo_mq),
+             Path = queue_db_path(),
+             os:cmd("rm -rf " ++ Path),
+             ok
+     end,
+     fun (_) ->
+             meck:unload(),
+             application:stop(leo_mq),
+             ?debugVal("### MQ.END ###"),
+             ok
+     end,
+     [
+      {"test pub/sub",
+       {timeout, timer:seconds(120),fun pub_sub/0}}
+     ]}.
+
+
+pub_sub() ->
+    meck:new(?TEST_CLIENT_MOD, [non_strict]),
+    meck:expect(?TEST_CLIENT_MOD, handle_call,
+                fun({consume,_Id,_MsgBin}) ->
+                        ok;
+                   ({publish,_Id,_Reply}) ->
+                        ok
+                end),
+    Path = queue_db_path(),
+    Ret  =  leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
+                                                 {root_path, Path},
+                                                 {num_of_batch_processes, 10},
+                                                 {max_interval, 500},
+                                                 {min_interval, 100}]),
+    ?assertEqual(ok, Ret),
+
+    ok = publish_messages(100),
+    timer:sleep(1000),
+
+    ?debugVal("===== suspend ====="),
+    ok = leo_mq_api:suspend(?QUEUE_ID_PUBLISHER),
+    timer:sleep(5000),
+    ?debugVal("===== resume ====="),
+    ok = leo_mq_api:resume(?QUEUE_ID_PUBLISHER),
+
+    ok = check_state(),
+    ok.
+
+
+%% @private
+queue_db_path() ->
+    S = os:cmd("pwd"),
+    Path = string:substr(S, 1, length(S) -1) ++ "/queue",
+    Path.
+
+%% @private
+publish_messages(0) ->
+    ok;
+publish_messages(Index) ->
+    Key = list_to_binary(lists:append(["air/on/g/string_", integer_to_list(Index)])),
+    Msg = term_to_binary([{key,   Key},
+                          {index, Index},
+                          {clock, leo_date:clock()}]),
+    ok = leo_mq_api:publish(?QUEUE_ID_PUBLISHER, Key, Msg),
+    publish_messages(Index - 1).
 
 -endif.
