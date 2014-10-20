@@ -18,11 +18,11 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
-%% @doc FSM of the data-compaction worker, which handles removing unnecessary objects from a object container.
-%% @reference https://github.com/leo-project/leo_object_storage/blob/master/src/leo_compact_fsm_controller.erl
+%% @doc FSM of the msg-consumer
+%% @reference
 %% @end
 %%======================================================================
--module(leo_mq_fsm_worker).
+-module(leo_mq_consumer).
 
 -author('Yosuke Hara').
 
@@ -32,12 +32,12 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/4, stop/1]).
--export([run/1, run/3,
+-export([start_link/3, stop/1]).
+-export([run/1,
          suspend/1,
          resume/1,
          finish/1,
-         state/2]).
+         state/1]).
 
 %% gen_fsm callbacks
 -export([init/1,
@@ -50,26 +50,25 @@
 
 -export([idling/2, idling/3,
          running/2, running/3,
-         suspending/2, suspending/3]).
+         suspending/2, suspending/3,
+         defer_consume/3
+        ]).
 
 -compile(nowarn_deprecated_type).
 -define(DEF_TIMEOUT, timer:seconds(30)).
 
 -record(event_info, {
           id :: atom(),
-          event = ?EVENT_RUN :: event_of_compaction(),
-          controller_pid :: pid(),
-          client_pid     :: pid(),
-          callback :: function()
+          event = ?EVENT_RUN :: event_of_compaction()
          }).
 
 -record(state, {
           id :: atom(),
-          status = ?ST_IDLING   :: state_of_compaction(),
-          cntl_pid :: pid(),
-          is_locked = false     :: boolean(),
-          waiting_time = 0      :: non_neg_integer(),
-          start_datetime = 0 :: non_neg_integer()
+          status = ?ST_IDLING :: state_of_compaction(),
+          publisher_id        :: atom(),
+          mq_properties = #mq_properties{} :: #mq_properties{},
+          waiting_time = 0    :: non_neg_integer(),
+          start_datetime = 0  :: non_neg_integer()
          }).
 
 
@@ -77,14 +76,13 @@
 %% API
 %%====================================================================
 %% @doc Creates a gen_fsm process as part of a supervision tree
--spec(start_link(Id, ObjStorageId, MetaDBId, LoggerId) ->
+-spec(start_link(Id, PublisherId, Props) ->
              {ok, pid()} | {error, any()} when Id::atom(),
-                                               ObjStorageId::atom(),
-                                               MetaDBId::atom(),
-                                               LoggerId::atom()).
-start_link(Id, ObjStorageId, MetaDBId, LoggerId) ->
+                                               PublisherId::atom(),
+                                               Props::#mq_properties{}).
+start_link(Id, PublisherId, Props) ->
     gen_fsm:start_link({local, Id}, ?MODULE,
-                       [Id, ObjStorageId, MetaDBId, LoggerId], []).
+                       [Id, PublisherId, Props], []).
 
 
 %% @doc Stop this server
@@ -102,18 +100,8 @@ stop(Id) ->
 %%
 -spec(run(Id) ->
              ok | {error, any()} when Id::atom()).
-
 run(Id) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_RUN}).
-
--spec(run(Id, ControllerPid, CallbackFun) ->
-             ok | {error, any()} when Id::atom(),
-                                      ControllerPid::pid(),
-                                      CallbackFun::function()).
-run(Id, ControllerPid, CallbackFun) ->
-    gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RUN,
-                                            controller_pid = ControllerPid,
-                                            callback = CallbackFun}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -142,13 +130,11 @@ finish(Id) ->
 
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
-%%
--spec(state(Id, Client) ->
-             ok | {error, any()} when Id::atom(),
-                                      Client::pid()).
-state(Id, Client) ->
-    gen_fsm:send_event(Id, #event_info{event = state,
-                                       client_pid = Client}).
+-spec(state(Id) ->
+             {ok, state_of_compaction()} when Id::atom()).
+state(Id) ->
+    gen_fsm:sync_send_all_state_event(
+      Id, state, ?DEF_TIMEOUT).
 
 
 %%====================================================================
@@ -156,8 +142,10 @@ state(Id, Client) ->
 %%====================================================================
 %% @doc Initiates the server
 %%
-init([Id]) ->
-    {ok, ?ST_IDLING, #state{id = Id}}.
+init([Id, PublisherId, Props]) ->    
+    {ok, ?ST_IDLING, #state{id = Id,
+                            publisher_id  = PublisherId,
+                            mq_properties = Props}}.
 
 %% @doc Handle events
 handle_event(_Event, StateName, State) ->
@@ -168,8 +156,8 @@ handle_sync_event(state, _From, StateName, State) ->
     {reply, {ok, StateName}, StateName, State};
 
 %% @doc Handle 'stop' event
-handle_sync_event(stop, _From, _StateName, Status) ->
-    {stop, shutdown, ok, Status}.
+handle_sync_event(stop, _From, _StateName, State) ->
+    {stop, shutdown, ok, State}.
 
 
 %% @doc Handling all non call/cast messages
@@ -206,23 +194,13 @@ format_status(_Opt, [_PDict, State]) ->
              {next_state, ?ST_IDLING | ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                                 From::{pid(),Tag::atom()},
                                                                 State::#state{}).
-idling(#event_info{event = ?EVENT_RUN,
-                   controller_pid = ControllerPid,
-                   callback = _CallbackFun}, From, #state{id = Id} = State) ->
+idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id} = State) ->
     NextStatus = ?ST_RUNNING,
-    State_1 = State#state{cntl_pid = ControllerPid,
-                          status        = NextStatus,
+    State_1 = State#state{status        = NextStatus,
                           start_datetime = leo_date:now()},
-
-    case prepare(State_1) of
-        {ok, State_2} ->
-            gen_fsm:reply(From, ok),
-            ok = run(Id),
-            {next_state, NextStatus, State_2};
-        {{error, Cause},_State} ->
-            gen_fsm:reply(From, {error, Cause}),
-            {next_state, ?ST_IDLING, State_1}
-    end;
+    gen_fsm:reply(From, ok),
+    ok = run(Id),
+    {next_state, NextStatus, State_1};
 idling(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     NextStatus = ?ST_IDLING,
@@ -231,10 +209,12 @@ idling(_, From, State) ->
 -spec(idling(EventInfo, State) ->
              {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
                                                   State::#state{}).
-idling(#event_info{event = ?EVENT_STATE,
-                   client_pid = Client}, State) ->
+idling(#event_info{event = ?EVENT_RUN}, State) ->
+    NextStatus = ?ST_RUNNING,
+    _ = consume(State),
+    {next_state, NextStatus, State#state{status = NextStatus}};
+idling(#event_info{event = ?EVENT_STATE}, State) ->
     NextStatus = ?ST_IDLING,
-    erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
@@ -247,47 +227,48 @@ idling(_, State) ->
                                                    State::#state{}).
 running(#event_info{event = ?EVENT_RUN},
         #state{id = Id,
-               cntl_pid = _CntlPid} = State) ->
+               mq_properties = #mq_properties{
+                                  max_interval = MaxInterval,
+                                  min_interval = MinInterval}} = State) ->
     NextStatus = ?ST_RUNNING,
-    State_3 =
-        case catch execute(State) of
+    State_2 =
+        case catch consume(State) of
             %% Execute the data-compaction repeatedly
-            {ok, {next, State_1}} ->
+            ok ->
+                Time = interval(MinInterval, MaxInterval),
+                ok = timer:sleep(Time),
                 ok = run(Id),
+                State;
+            %% Reached end of the object-container
+            not_found ->
+                ok = finish(Id),
+                {_,State_1} = after_execute(ok, State),
                 State_1;
             %% An unxepected error has occured
             {'EXIT', Cause} ->
                 ok = finish(Id),
-                {_,State_2} = after_execute({error, Cause}, State),
-                State_2;
-            %% Reached end of the object-container
-            {ok, {eof, State_1}} ->
-                ok = finish(Id),
-                {_,State_2} = after_execute(ok, State_1),
-                State_2;
+                {_,State_1} = after_execute({error, Cause}, State),
+                State_1;
             %% An epected error has occured
-            {{error, Cause}, State_1} ->
+            {error, Cause} ->
                 ok = finish(Id),
-                {_,State_2} = after_execute({error, Cause}, State_1),
-                State_2
+                {_,State_1} = after_execute({error, Cause}, State),
+                State_1
         end,
-    {next_state, NextStatus, State_3#state{status = NextStatus}};
+    {next_state, NextStatus, State_2#state{status = NextStatus}};
 
 running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_FINISH}, #state{id   = Id,
-                                                   cntl_pid = CntlPid} = State) ->
+running(#event_info{event = ?EVENT_FINISH}, State) ->
     %% Notify a message to the compaction-manager
-    erlang:send(CntlPid, {finish, Id}),
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
                                          start_datetime = 0}};
-running(#event_info{event = ?EVENT_STATE,
-                    client_pid = Client}, State) ->
+
+running(#event_info{event = ?EVENT_STATE}, State) ->
     NextStatus = ?ST_RUNNING,
-    erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
 running(_, State) ->
     NextStatus = ?ST_RUNNING,
@@ -310,10 +291,8 @@ running(_, From, State) ->
 suspending(#event_info{event = ?EVENT_RUN}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
-suspending(#event_info{event = ?EVENT_STATE,
-                       client_pid = Client}, State) ->
+suspending(#event_info{event = ?EVENT_STATE}, State) ->
     NextStatus = ?ST_SUSPENDING,
-    erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
 suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
@@ -339,21 +318,81 @@ suspending(_, From, State) ->
 %%--------------------------------------------------------------------
 %% Inner Functions
 %%--------------------------------------------------------------------
-%% @doc compact objects from the object-container on a independent process.
-%% @private
--spec(prepare(State) ->
-             {ok, State} | {{error, any()}, State} when State::#state{}).
-prepare(State) ->
-    {ok, State}.
-
-
-%% @doc Reduce unnecessary objects from object-container.
-%% @private
--spec(execute(State) ->
-             {ok, State} | {{error, any()}, State} when State::#state{}).
-execute(State) ->
-    {ok, State}.
-
+%% @doc after processing of consumption messages
 %% @private
 after_execute(Ret, State) ->
     {Ret, State}.
+
+
+%% @doc Consume a message
+%%
+-spec(consume(State) ->
+             ok | not_found | {error, any()} when State::#state{}).
+consume(#state{id = Id,
+               mq_properties = #mq_properties{
+                                  mod_callback = Mod,
+                                  mqdb_id = BackendMessage,
+                                  num_of_batch_processes = NumOfBatchProcs
+                                 }} = _State) ->
+    consume(Id, Mod, BackendMessage, NumOfBatchProcs).
+
+%% @doc Consume a message
+%% @private
+-spec(consume(atom(), atom(), atom(), non_neg_integer()) ->
+             ok | not_found | {error, any()}).
+consume(_,_,_,0) ->
+    ok;
+consume(Id, Mod, BackendMessage, NumOfBatchProcs) ->
+    try
+        case leo_backend_db_api:first(BackendMessage) of
+            {ok, {Key, Val}} ->
+                %% Taking measure of queue-msg migration
+                %% for previsous 1.2.0-pre1
+                MsgTerm = binary_to_term(Val),
+                MsgBin = case is_tuple(MsgTerm) of
+                             true when is_integer(element(1, MsgTerm)) andalso
+                                       is_binary(element(2, MsgTerm)) ->
+                                 element(2, MsgTerm);
+                             false ->
+                                 Val
+                         end,
+                ok = erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
+                ok = leo_backend_db_api:delete(BackendMessage, Key),
+                consume(Id, Mod, BackendMessage, NumOfBatchProcs - 1);
+            not_found = Cause ->
+                Cause;
+            Error ->
+                Error
+        end
+    catch
+        _: Why ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "consume_fun/5"},
+                                    {line, ?LINE}, {body, Why}]),
+            {error, Why}
+    end.
+
+
+%% @doc Defer a cosuming message
+%%
+-spec(defer_consume(atom(), pos_integer(), integer()) ->
+             {ok, timer:tref()} | {error,_}).
+defer_consume(Id, MaxInterval, MinInterval) ->
+    Time = interval(MinInterval, MaxInterval),
+    timer:apply_after(Time, ?MODULE, run, [Id]).
+
+
+%% @doc Retrieve interval of the waiting proc
+%% @private
+-spec(interval(MinInterval, MaxInterval) ->
+             Interval when MinInterval::non_neg_integer(),
+                           MaxInterval::non_neg_integer(),
+                           Interval::non_neg_integer()).
+interval(MinInterval, MaxInterval) ->
+    Interval_1 = random:uniform(MaxInterval),
+    Interval_2 = case (Interval_1 < MinInterval) of
+                     true  -> MinInterval;
+                     false -> Interval_1
+                 end,
+    Interval_2.

@@ -21,10 +21,10 @@
 %% ---------------------------------------------------------------------
 %% Leo MQ - Server
 %% @doc The gen_server process for the process of a mq as part of a supervision tree
-%% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_server.erl
+%% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_publisher.erl
 %% @end
 %%======================================================================
--module(leo_mq_server).
+-module(leo_mq_publisher).
 
 -author('Yosuke Hara').
 
@@ -43,7 +43,7 @@
          terminate/2,
          code_change/3]).
 
--export([publish/3, consume/1, status/1, close/1]).
+-export([publish/3, status/1, close/1]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -51,19 +51,12 @@
 -define(CURRENT_TIME, leo_date:now()).
 -endif.
 
--define(DEF_DB_PATH_INDEX,   "index"  ).
--define(DEF_DB_PATH_MESSAGE, "message").
-
 -define(DEF_TIMEOUT, 30000).
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MIN,  5000).
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MAX, 10000).
 
 -record(state, {id               :: atom(),
-                module           :: atom(),
-                max_interval = 1 :: non_neg_integer(),
-                min_interval = 1 :: non_neg_integer(),
-                backend_message  :: atom(),
-                num_of_batch_processes = 1 :: pos_integer(),
+                mq_properties = #mq_properties{} :: #mq_properties{},
                 count = 0 :: non_neg_integer()
                }).
 
@@ -97,14 +90,6 @@ publish(Id, KeyBin, MessageBin) ->
     gen_server:cast(Id, {publish, KeyBin, MessageBin}).
 
 
-%% @doc Consume a message from the queue.
-%%
--spec(consume(Id) ->
-             ok | {error, any()} when Id::atom()).
-consume(Id) ->
-    gen_server:cast(Id, consume).
-
-
 %% @doc Retrieve the current state from the queue.
 %%
 -spec(status(Id) ->
@@ -125,32 +110,22 @@ close(Id) ->
 %% GEN_SERVER CALLBACKS
 %%--------------------------------------------------------------------
 %% @doc gen_server callback - Module:init(Args) -> Result
-init([Id, #mq_properties{module                 = Mod,
-                         db_name                = DBName,
-                         db_procs               = DBProcs,
-                         root_path              = RootPath,
-                         num_of_batch_processes = NumOfBatchProc,
-                         max_interval           = MaxInterval,
-                         min_interval           = MinInterval}]) ->
+init([Id, #mq_properties{db_name   = DBName,
+                         db_procs  = DBProcs,
+                         mqdb_id   = MQDBMessageId,
+                         mqdb_path = MQDBMessagePath} = MQProps]) ->
 
     case application:get_env(leo_mq, backend_db_sup_ref) of
         {ok, Pid} ->
-            {MQDBMessagePath, MQDBMessageId} = backend_db_info(Id, RootPath),
-
             case leo_backend_db_sup:start_child(
                    Pid, MQDBMessageId,
                    DBProcs, DBName, MQDBMessagePath) of
                 ok ->
-                    Count = 0, %% @TODO:Retrieve total num of message from the backend-db
-                    defer_consume(Id, MaxInterval, MinInterval),
-                    {ok, #state{id                     = Id,
-                                module                 = Mod,
-                                num_of_batch_processes = NumOfBatchProc,
-                                max_interval           = MaxInterval,
-                                min_interval           = MinInterval,
-                                backend_message        = MQDBMessageId,
-                                count = Count
-                               }};
+                    %% @TODO: Retrieve total num of message from the backend-db
+                    Count = 0,
+                    {ok, #state{id = Id,
+                                mq_properties = MQProps,
+                                count = Count}};
                 _ ->
                     {stop, "Failure backend_db launch"}
             end;
@@ -160,7 +135,8 @@ init([Id, #mq_properties{module                 = Mod,
 
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
-handle_call(status, _From, #state{backend_message = MQDBMessageId} = State) ->
+handle_call(status, _From, #state{mq_properties = MQProps} = State) ->
+    MQDBMessageId = MQProps#mq_properties.mqdb_id,
     Res = leo_backend_db_api:status(MQDBMessageId),
     Count = lists:foldl(fun([{key_count, KC}, _], Acc) ->
                                 Acc + KC;
@@ -169,7 +145,8 @@ handle_call(status, _From, #state{backend_message = MQDBMessageId} = State) ->
                          end, 0, Res),
     {reply, {ok, Count}, State};
 
-handle_call(close, _From, #state{backend_message = MQDBMessageId} = State) ->
+handle_call(close, _From, #state{mq_properties = MQProps} = State) ->
+    MQDBMessageId = MQProps#mq_properties.mqdb_id,
     ok = close_db(MQDBMessageId),
     {reply, ok, State};
 
@@ -179,27 +156,14 @@ handle_call(stop, _From, State) ->
 
 %% @doc gen_server callback - Module:handle_cast(Request, State) -> Result
 handle_cast({publish, KeyBin, MessageBin}, State = #state{id     = Id,
-                                                          module = Mod}) ->
+                                                          mq_properties = MQProps}) ->
+    Mod = MQProps#mq_properties.mod_callback,
+    ConsumerId = MQProps#mq_properties.consumer_id,
+
     Reply = put_message(KeyBin, MessageBin, State),
     catch erlang:apply(Mod, handle_call, [{publish, Id, Reply}]),
+    ok = leo_mq_consumer:run(ConsumerId),
     {noreply, State};
-
-
-handle_cast(consume, #state{id                     = Id,
-                            module                 = Mod,
-                            num_of_batch_processes = NumOfBatchProc,
-                            max_interval           = MaxInterval,
-                            min_interval           = MinInterval,
-                            backend_message        = BackendMessage} = State) ->
-    case consume_fun(Id, Mod, BackendMessage, NumOfBatchProc) of
-        not_found ->
-            defer_consume(Id, ?DEF_AFTER_NOT_FOUND_INTERVAL_MAX,
-                          ?DEF_AFTER_NOT_FOUND_INTERVAL_MIN),
-            {noreply, State};
-        _Other ->
-            defer_consume(Id, MaxInterval, MinInterval),
-            {noreply, State}
-    end;
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -235,61 +199,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %%% INNER FUNCTIONS
 %%--------------------------------------------------------------------
-%% @doc Consume a message
-%%
--spec(consume_fun(atom(), atom(), atom(), pos_integer()) ->
-             ok | not_found | {error, any()}).
-consume_fun(Id, Mod, BackendMessage, NumOfBatchProc) ->
-    try
-        case leo_backend_db_api:first(BackendMessage) of
-            {ok, {Key, Val}} ->
-                %% Taking measure of queue-msg migration
-                %% for previsous 1.2.0-pre1
-                MsgTerm = binary_to_term(Val),
-                MsgBin = case is_tuple(MsgTerm) of
-                             true when is_integer(element(1, MsgTerm)) andalso
-                                       is_binary(element(2, MsgTerm)) ->
-                                 element(2, MsgTerm);
-                             false ->
-                                 Val
-                         end,
-
-                erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
-                catch leo_backend_db_api:delete(BackendMessage, Key),
-                consume_fun(Id, Mod, BackendMessage, NumOfBatchProc - 1);
-            not_found = Cause ->
-                {error, Cause};
-            Error ->
-                Error
-        end
-    catch
-        _: Why ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "consume_fun/5"},
-                                    {line, ?LINE}, {body, Why}]),
-            {error, Why}
-    end.
-
-
-%% @doc Defer a cosuming message
-%%
--spec(defer_consume(atom(), pos_integer(), integer()) ->
-             {ok, timer:tref()} | {error,_}).
-defer_consume(Id, MaxTime, MinTime) ->
-    Time0 = random:uniform(MaxTime),
-    Time1 = case (Time0 < MinTime) of
-                true  -> MinTime;
-                false -> Time0
-            end,
-    timer:apply_after(Time1, ?MODULE, consume, [Id]).
-
-
 %% @doc put a message into the queue.
 %%
 -spec(put_message(binary(), tuple(), #state{}) ->
              ok | {error, any()}).
-put_message(MsgKeyBin, MsgBin, #state{backend_message = BackendMessage}) ->
+put_message(MsgKeyBin, MsgBin, #state{mq_properties = MQProps}) ->
     try
+        BackendMessage = MQProps#mq_properties.mqdb_id,
         case leo_backend_db_api:get(BackendMessage, MsgKeyBin) of
             not_found ->
                 case leo_backend_db_api:put(
@@ -310,20 +226,6 @@ put_message(MsgKeyBin, MsgBin, #state{backend_message = BackendMessage}) ->
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
-
-
-%% @doc Retrieve backend-db information.
-%%
--spec(backend_db_info(atom(), string()) ->
-             list()).
-backend_db_info(Id, RootPath) ->
-    NewRootPath = case (string:len(RootPath) == string:rstr(RootPath, "/")) of
-                      true  -> RootPath;
-                      false ->  RootPath ++ "/"
-                  end,
-    MQDBMessagePath = NewRootPath ++ ?DEF_DB_PATH_MESSAGE,
-    MQDBMessageId = list_to_atom(atom_to_list(Id) ++ "_message"),
-    {MQDBMessagePath, MQDBMessageId}.
 
 
 %% @doc Close a db
