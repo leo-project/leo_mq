@@ -117,20 +117,16 @@ init([Id, #mq_properties{db_name   = DBName,
 
     case application:get_env(leo_mq, backend_db_sup_ref) of
         {ok, Pid} ->
-            case leo_backend_db_sup:start_child(
+            ok = leo_backend_db_sup:start_child(
                    Pid, MQDBMessageId,
-                   DBProcs, DBName, MQDBMessagePath) of
-                ok ->
-                    %% @TODO: Retrieve total num of message from the backend-db
-                    Count = 0,
-                    {ok, #state{id = Id,
-                                mq_properties = MQProps,
-                                count = Count}};
-                _ ->
-                    {stop, "Failure backend_db launch"}
-            end;
+                   DBProcs, DBName, MQDBMessagePath),
+            %% @TODO: Retrieve total num of message from the backend-db
+            Count = 0,
+            {ok, #state{id = Id,
+                        mq_properties = MQProps,
+                        count = Count}};
         _Error ->
-            {stop, "Not initialized"}
+            {stop, 'not_initialized'}
     end.
 
 
@@ -155,7 +151,7 @@ handle_call(stop, _From, State) ->
 
 
 %% @doc gen_server callback - Module:handle_cast(Request, State) -> Result
-handle_cast({publish, KeyBin, MessageBin}, State = #state{id     = Id,
+handle_cast({publish, KeyBin, MessageBin}, State = #state{id = Id,
                                                           mq_properties = MQProps}) ->
     Mod = MQProps#mq_properties.mod_callback,
     ConsumerId = MQProps#mq_properties.consumer_id,

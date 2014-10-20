@@ -51,8 +51,8 @@
 %% @doc Create a new message-queue server
 %%
 -spec(new(Id, Props) ->
-             ok | {error, any()} when Id::atom(),
-                                      Props::[atom()]|#mq_properties{}).
+             ok when Id::atom(),
+                     Props::[atom()]|#mq_properties{}).
 new(Id, Props) when is_list(Props) ->
     case leo_misc:get_value(?MQ_PROP_MOD, Props, undefined) of
         undefined ->
@@ -64,9 +64,9 @@ new(Id, Props) ->
     new(leo_mq_sup, Id, Props).
 
 -spec(new(RefSup, Id, Props) ->
-             ok | {error, any()} when RefSup::atom()|pid(),
-                                      Id::atom(),
-                                      Props::[atom()]|#mq_properties{}).
+             ok  when RefSup::atom()|pid(),
+                      Id::atom(),
+                      Props::[atom()]|#mq_properties{}).
 new(RefSup, Id, Props) ->
     Props_1 = case is_list(Props) of
                   true ->
@@ -75,17 +75,9 @@ new(RefSup, Id, Props) ->
                       Props
               end,
 
-    case start_child_1(RefSup, Props_1) of
-        ok ->
-            case start_child_2(RefSup, Props_1) of
-                ok ->
-                    ok;
-                _ ->
-                    {error, launch_failed}
-            end;
-        _ ->
-            {error, launch_failed}
-    end.
+    ok = start_child_1(RefSup, Props_1),
+    ok = start_child_2(RefSup, Props_1),
+    ok.
 
 
 %% @private
