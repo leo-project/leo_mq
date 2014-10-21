@@ -36,18 +36,73 @@
 -define(MQ_SUBSCRIBE_FUN,          'subscribe').
 
 
--record(mq_properties, {module           :: atom(),
-                        function         :: atom(),
-                        db_name          :: atom(),
-                        db_procs = 1     :: integer(),
-                        root_path = []   :: string(),
-                        max_interval = 1 :: integer(),
-                        min_interval = 1 :: integer(),
-                        num_of_batch_processes = 1 :: pos_integer()
-                       }).
+-record(mq_properties, {
+          publisher_id :: atom(),
+          consumer_id  :: atom(),
+          mod_callback :: module(),
 
--record(mq_log, {type             :: atom(),
-                 requested_at = 0 :: integer(),
-                 format  = []     :: string(),
-                 message = []     :: string()}).
+          db_name           :: atom(),
+          db_procs = 1      :: integer(),
+          root_path = []    :: string(),
+          mqdb_id           :: atom(),
+          mqdb_path = []    :: string(),
 
+          max_interval = 1  :: integer(),
+          min_interval = 1  :: integer(),
+          num_of_batch_processes = 1 :: pos_integer()
+         }).
+
+-record(mq_log, {
+          type             :: atom(),
+          requested_at = 0 :: integer(),
+          format  = []     :: string(),
+          message = []     :: string()}).
+
+
+
+-define(ST_IDLING,     'idling').
+-define(ST_RUNNING,    'running').
+-define(ST_SUSPENDING, 'suspending').
+-type(state_of_compaction() :: ?ST_IDLING     |
+                               ?ST_RUNNING    |
+                               ?ST_SUSPENDING).
+
+-define(EVENT_RUN,      'run').
+-define(EVENT_DIAGNOSE, 'diagnose').
+-define(EVENT_LOCK,     'lock').
+-define(EVENT_SUSPEND,  'suspend').
+-define(EVENT_RESUME,   'resume').
+-define(EVENT_FINISH,   'finish').
+-define(EVENT_STATE,    'state').
+-type(event_of_compaction() ::?EVENT_RUN      |
+                              ?EVENT_DIAGNOSE |
+                              ?EVENT_LOCK     |
+                              ?EVENT_SUSPEND  |
+                              ?EVENT_RESUME   |
+                              ?EVENT_FINISH   |
+                              ?EVENT_STATE).
+
+
+-define(DEF_CHECK_MAX_INTERVAL_1, timer:seconds(1)).
+-define(DEF_CHECK_MIN_INTERVAL_1, timer:seconds(0)).
+-define(DEF_CHECK_MAX_INTERVAL_2, timer:seconds(30)).
+-define(DEF_CHECK_MIN_INTERVAL_2, timer:seconds(10)).
+
+-define(consumer_id(Id),
+        list_to_atom(
+          lists:append([atom_to_list(Id), "_consumer"]))).
+
+%% Retrieve the backend-db info
+-define(DEF_DB_PATH_INDEX,   "index"  ).
+-define(DEF_DB_PATH_MESSAGE, "message").
+
+-define(backend_db_info(Id, RootPath),
+        begin
+            MQDBMessageId = list_to_atom(atom_to_list(Id) ++ "_message"),
+            NewRootPath = case (string:len(RootPath) == string:rstr(RootPath, "/")) of
+                              true  -> RootPath;
+                              false ->  RootPath ++ "/"
+                          end,
+            MQDBMessagePath = NewRootPath ++ ?DEF_DB_PATH_MESSAGE,
+            {MQDBMessageId, MQDBMessagePath}
+        end).
