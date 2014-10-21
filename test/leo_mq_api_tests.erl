@@ -106,8 +106,8 @@ publish_(Path) ->
                             _ ->
                                 throw({error, invalid_message})
                         end;
-                   ({publish,_Id,_Reply}) ->
-                        %% ?debugVal({publish, Id, Reply}),
+                   ({publish, Id, Reply}) ->
+                        ?debugVal({publish, Id, Reply}),
                         ok
                 end),
     Ret =  leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
@@ -141,7 +141,6 @@ check_state() ->
         {ok, ?ST_IDLING} ->
             ok;
         {ok,_Other} ->
-            ?debugVal(_Other),
             check_state()
     end.
 
@@ -189,12 +188,14 @@ pub_sub() ->
     ?assertEqual(ok, Ret),
 
     ok = publish_messages(100),
-    timer:sleep(1000),
+    timer:sleep(timer:seconds(1)),
 
-    ?debugVal("===== suspend ====="),
     ok = leo_mq_api:suspend(?QUEUE_ID_PUBLISHER),
-    timer:sleep(5000),
-    ?debugVal("===== resume ====="),
+
+    {ok, TotalMsgs} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?assertEqual(true, TotalMsgs > 0),
+
+    timer:sleep(timer:seconds(3)),
     ok = leo_mq_api:resume(?QUEUE_ID_PUBLISHER),
 
     ok = check_state(),
