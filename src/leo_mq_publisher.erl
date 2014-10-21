@@ -20,7 +20,7 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo MQ - Server
-%% @doc The gen_server process for the process of a mq as part of a supervision tree
+%% @doc The gen_server process for the process of a mq's publisher as part of a supervision tree
 %% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_publisher.erl
 %% @end
 %%======================================================================
@@ -136,9 +136,9 @@ handle_call(status, _From, #state{mq_properties = MQProps} = State) ->
     Res = leo_backend_db_api:status(MQDBMessageId),
     Count = lists:foldl(fun([{key_count, KC}, _], Acc) ->
                                 Acc + KC;
-                            (_, Acc) ->
+                           (_, Acc) ->
                                 Acc
-                         end, 0, Res),
+                        end, 0, Res),
     {reply, {ok, Count}, State};
 
 handle_call(close, _From, #state{mq_properties = MQProps} = State) ->

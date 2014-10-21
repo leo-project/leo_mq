@@ -18,8 +18,9 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
-%% @doc FSM of the msg-consumer
-%% @reference
+%% Leo MQ - Server
+%% @doc The gen_server process for the process of a mq's consumer as part of a supervision tree
+%% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_consumer.erl
 %% @end
 %%======================================================================
 -module(leo_mq_consumer).
@@ -334,13 +335,13 @@ after_execute(Ret, State) ->
 %%
 -spec(consume(State) ->
              ok | not_found | {error, any()} when State::#state{}).
-consume(#state{id = Id,
-               mq_properties = #mq_properties{
+consume(#state{mq_properties = #mq_properties{
+                                  publisher_id = PublisherId,
                                   mod_callback = Mod,
                                   mqdb_id = BackendMessage,
                                   num_of_batch_processes = NumOfBatchProcs
                                  }} = _State) ->
-    consume(Id, Mod, BackendMessage, NumOfBatchProcs).
+    consume(PublisherId, Mod, BackendMessage, NumOfBatchProcs).
 
 %% @doc Consume a message
 %% @private
@@ -359,7 +360,7 @@ consume(Id, Mod, BackendMessage, NumOfBatchProcs) ->
                              true when is_integer(element(1, MsgTerm)) andalso
                                        is_binary(element(2, MsgTerm)) ->
                                  element(2, MsgTerm);
-                             false ->
+                             _ ->
                                  Val
                          end,
                 ok = erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
