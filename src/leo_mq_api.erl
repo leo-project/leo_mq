@@ -33,7 +33,9 @@
 
 -export([new/2, new/3,
          publish/3, suspend/1, resume/1,
-         status/1]).
+         status/1,
+         consumers/0
+        ]).
 
 -define(APP_NAME,      'leo_mq').
 -define(DEF_DB_MODULE, 'leo_mq_eleveldb'). % Not used in anywhere.
@@ -143,6 +145,16 @@ resume(Id) ->
              {ok, list()} when Id::atom()).
 status(Id) ->
     leo_mq_publisher:status(Id).
+
+
+%% @doc Retrieve registered consumers
+%%
+-spec(consumers() ->
+             {ok, Consumers} when Consumers::[atom()]).
+consumers() ->
+    {ok, [Consumer || {Consumer,_,worker,[leo_mq_consumer]}
+                          <- supervisor:which_children(leo_mq_sup)]}.
+
 
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
