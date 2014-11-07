@@ -59,13 +59,20 @@
           message = []     :: string()}).
 
 
-
 -define(ST_IDLING,     'idling').
 -define(ST_RUNNING,    'running').
 -define(ST_SUSPENDING, 'suspending').
--type(state_of_compaction() :: ?ST_IDLING     |
-                               ?ST_RUNNING    |
-                               ?ST_SUSPENDING).
+-type(state_of_mq() :: ?ST_IDLING     |
+                       ?ST_RUNNING    |
+                       ?ST_SUSPENDING).
+
+-record(mq_state, {
+          id :: atom(),
+          alias :: atom(),
+          state :: state_of_mq(),
+          num_of_messages = 0 :: non_neg_integer()
+         }).
+
 
 -define(EVENT_RUN,      'run').
 -define(EVENT_DIAGNOSE, 'diagnose').

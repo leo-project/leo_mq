@@ -153,16 +153,17 @@ status(Id) ->
              {ok, Consumers} when Consumers::[{ConsumerId,
                                                State, MsgCount}],
                                   ConsumerId::atom(),
-                                  State::state_of_compaction(),
+                                  State::state_of_mq(),
                                   MsgCount::non_neg_integer()).
 consumers() ->
     case supervisor:which_children(leo_mq_sup) of
         [] ->
             {ok, []};
         Children ->
-            {ok, [ { ?publisher_id(Worker),
-                     element(2,leo_mq_consumer:state(Worker)),
-                     element(2,status(?publisher_id(Worker))) }
+            {ok, [ #mq_state{
+                      id = ?publisher_id(Worker),
+                      state = element(2,leo_mq_consumer:state(Worker)),
+                      num_of_messages = element(2,status(?publisher_id(Worker)))}
                    || {Worker,_,worker,[leo_mq_consumer]} <- Children]}
     end.
 

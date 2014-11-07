@@ -204,8 +204,9 @@ pub_sub() ->
 
     {ok, Consumers_1} = leo_mq_api:consumers(),
     ?debugVal(Consumers_1),
-    ?assertEqual(true, length([SuspendingProc ||
-                                  {SuspendingProc, ?ST_SUSPENDING, _MsgCount_1}
+    ?assertEqual(true, length([SuspendingProc
+                               || #mq_state{id = SuspendingProc,
+                                            state = ?ST_SUSPENDING}
                                       <- Consumers_1]) > 0),
 
     %% resume the message consumption
@@ -224,8 +225,9 @@ pub_sub() ->
     %% retrieve registered consumers
     {ok, Consumers_2} = leo_mq_api:consumers(),
     ?debugVal(Consumers_2),
-    ?assertEqual(true, length([IdlingProc ||
-                                  {IdlingProc, ?ST_IDLING, _MsgCount_2}
+    ?assertEqual(true, length([IdlingProc
+                               || #mq_state{id = IdlingProc,
+                                            state = ?ST_IDLING}
                                       <- Consumers_2]) > 0),
     ok.
 
