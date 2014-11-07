@@ -126,6 +126,7 @@ publish_(Path) ->
            ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_4), term_to_binary(?TEST_META_4)),
     ok = leo_mq_api:publish(
            ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_5), term_to_binary(?TEST_META_5)),
+
     timer:sleep(1000),
     ok = check_state(),
 
@@ -136,7 +137,7 @@ publish_(Path) ->
 
 
 check_state() ->
-    timer:sleep(100),
+    timer:sleep(10),
     case leo_mq_consumer:state(?QUEUE_ID_CONSUMER) of
         {ok, ?ST_IDLING} ->
             ok;
@@ -150,7 +151,6 @@ check_state() ->
 %%
 %% =========================================================
 pub_sub_test_() ->
-
     {setup,
      fun ( ) ->
              ?debugVal("### MQ.START ###"),
@@ -187,18 +187,46 @@ pub_sub() ->
                                                  {min_interval, 100}]),
     ?assertEqual(ok, Ret),
 
+    %% publish messages
     ok = publish_messages(100),
     timer:sleep(timer:seconds(1)),
 
+    %% suspend the message consumption
+    ?debugVal("*** SUSPEND ***"),
     ok = leo_mq_api:suspend(?QUEUE_ID_PUBLISHER),
 
-    {ok, TotalMsgs} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
-    ?assertEqual(true, TotalMsgs > 0),
+    {ok, TotalMsgs_1} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?debugVal(TotalMsgs_1),
+    ?assertEqual(true, TotalMsgs_1 > 0),
 
-    timer:sleep(timer:seconds(3)),
+    {ok, State_1} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
+    ?assertEqual(?ST_SUSPENDING, State_1),
+
+    {ok, Consumers_1} = leo_mq_api:consumers(),
+    ?debugVal(Consumers_1),
+    ?assertEqual(true, length([SuspendingProc ||
+                                  {SuspendingProc, ?ST_SUSPENDING, _MsgCount_1}
+                                      <- Consumers_1]) > 0),
+
+    %% resume the message consumption
+    timer:sleep(timer:seconds(5)),
+    ?debugVal("*** RESUME ***"),
     ok = leo_mq_api:resume(?QUEUE_ID_PUBLISHER),
 
+    %% check current status
     ok = check_state(),
+    {ok, State_2} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
+    ?assertEqual(?ST_IDLING, State_2),
+
+    {ok, TotalMsgs_2} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?assertEqual(0, TotalMsgs_2),
+
+    %% retrieve registered consumers
+    {ok, Consumers_2} = leo_mq_api:consumers(),
+    ?debugVal(Consumers_2),
+    ?assertEqual(true, length([IdlingProc ||
+                                  {IdlingProc, ?ST_IDLING, _MsgCount_2}
+                                      <- Consumers_2]) > 0),
     ok.
 
 

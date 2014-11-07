@@ -235,7 +235,7 @@ running(#event_info{event = ?EVENT_RUN},
                                   min_interval = MinInterval}} = State) ->
     NextStatus = ?ST_RUNNING,
     State_2 =
-        case consume(State) of
+        case catch consume(State) of
             %% Execute the data-compaction repeatedly
             ok ->
                 Time = interval(MinInterval, MaxInterval),

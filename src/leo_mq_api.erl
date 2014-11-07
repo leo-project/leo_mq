@@ -33,14 +33,16 @@
 
 -export([new/2, new/3,
          publish/3, suspend/1, resume/1,
-         status/1]).
+         status/1,
+         consumers/0
+        ]).
 
 -define(APP_NAME,      'leo_mq').
 -define(DEF_DB_MODULE, 'leo_mq_eleveldb'). % Not used in anywhere.
 
 -define(DEF_BACKEND_DB_PROCS, 3).
--define(DEF_BACKEND_DB,      'bitcask').
--define(DEF_DB_ROOT_PATH,    "mq"  ).
+-define(DEF_BACKEND_DB,  'bitcask').
+-define(DEF_DB_ROOT_PATH, "mq"  ).
 
 -define(DEF_CONSUME_MAX_INTERVAL, 3000).
 -define(DEF_CONSUME_MIN_INTERVAL, 1000).
@@ -143,6 +145,26 @@ resume(Id) ->
              {ok, list()} when Id::atom()).
 status(Id) ->
     leo_mq_publisher:status(Id).
+
+
+%% @doc Retrieve registered consumers
+%%
+-spec(consumers() ->
+             {ok, Consumers} when Consumers::[{ConsumerId,
+                                               State, MsgCount}],
+                                  ConsumerId::atom(),
+                                  State::state_of_compaction(),
+                                  MsgCount::non_neg_integer()).
+consumers() ->
+    case supervisor:which_children(leo_mq_sup) of
+        [] ->
+            {ok, []};
+        Children ->
+            {ok, [ { ?publisher_id(Worker),
+                     element(2,leo_mq_consumer:state(Worker)),
+                     element(2,status(?publisher_id(Worker))) }
+                   || {Worker,_,worker,[leo_mq_consumer]} <- Children]}
+    end.
 
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
