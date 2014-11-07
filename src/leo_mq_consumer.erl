@@ -65,7 +65,7 @@
 
 -record(state, {
           id :: atom(),
-          status = ?ST_IDLING :: state_of_compaction(),
+          status = ?ST_IDLING :: state_of_mq(),
           publisher_id        :: atom(),
           mq_properties = #mq_properties{} :: #mq_properties{},
           waiting_time = 0    :: non_neg_integer(),
@@ -132,7 +132,7 @@ finish(Id) ->
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
 -spec(state(Id) ->
-             {ok, state_of_compaction()} when Id::atom()).
+             {ok, state_of_mq()} when Id::atom()).
 state(Id) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_STATE}, ?DEF_TIMEOUT).
 
