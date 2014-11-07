@@ -160,7 +160,7 @@ consumers() ->
         [] ->
             {ok, []};
         Children ->
-            {ok, [ { Worker,
+            {ok, [ { ?publisher_id(Worker),
                      element(2,leo_mq_consumer:state(Worker)),
                      element(2,status(?publisher_id(Worker))) }
                    || {Worker,_,worker,[leo_mq_consumer]} <- Children]}
