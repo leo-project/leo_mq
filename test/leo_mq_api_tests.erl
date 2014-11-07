@@ -195,12 +195,18 @@ pub_sub() ->
     ?debugVal("*** SUSPEND ***"),
     ok = leo_mq_api:suspend(?QUEUE_ID_PUBLISHER),
 
-    {ok, TotalMsgs} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
-    ?debugVal(TotalMsgs),
-    ?assertEqual(true, TotalMsgs > 0),
+    {ok, TotalMsgs_1} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?debugVal(TotalMsgs_1),
+    ?assertEqual(true, TotalMsgs_1 > 0),
 
     {ok, State_1} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
     ?assertEqual(?ST_SUSPENDING, State_1),
+
+    {ok, Consumers_1} = leo_mq_api:consumers(),
+    ?debugVal(Consumers_1),
+    ?assertEqual(true, length([SuspendingProc ||
+                                  {SuspendingProc, ?ST_SUSPENDING}
+                                      <- Consumers_1]) > 0),
 
     %% resume the message consumption
     timer:sleep(timer:seconds(5)),
@@ -212,8 +218,15 @@ pub_sub() ->
     {ok, State_2} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
     ?assertEqual(?ST_IDLING, State_2),
 
+    {ok, TotalMsgs_2} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?assertEqual(0, TotalMsgs_2),
+
     %% retrieve registered consumers
-    ?debugVal(leo_mq_api:consumers()),
+    {ok, Consumers_2} = leo_mq_api:consumers(),
+    ?debugVal(Consumers_2),
+    ?assertEqual(true, length([IdlingProc ||
+                                  {IdlingProc, ?ST_IDLING}
+                                      <- Consumers_2]) > 0),
     ok.
 
 

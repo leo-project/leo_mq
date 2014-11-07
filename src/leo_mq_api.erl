@@ -152,9 +152,13 @@ status(Id) ->
 -spec(consumers() ->
              {ok, Consumers} when Consumers::[atom()]).
 consumers() ->
-    {ok, [Consumer || {Consumer,_,worker,[leo_mq_consumer]}
-                          <- supervisor:which_children(leo_mq_sup)]}.
-
+    case supervisor:which_children(leo_mq_sup) of
+        [] ->
+            {ok, []};
+        Children ->
+            {ok, [ {Worker, element(2,leo_mq_consumer:state(Worker))}
+                   || {Worker,_,worker,[leo_mq_consumer]} <- Children]}
+    end.
 
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
