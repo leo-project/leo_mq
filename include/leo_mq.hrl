@@ -88,9 +88,19 @@
 -define(DEF_CHECK_MAX_INTERVAL_2, timer:seconds(30)).
 -define(DEF_CHECK_MIN_INTERVAL_2, timer:seconds(10)).
 
--define(consumer_id(Id),
+-define(DEF_CONSUMER_SUFFIX, "_consumer").
+
+-define(consumer_id(_PubId),
         list_to_atom(
-          lists:append([atom_to_list(Id), "_consumer"]))).
+          lists:append([atom_to_list(_PubId), ?DEF_CONSUMER_SUFFIX]))).
+
+-define(publisher_id(_ConsumerId),
+        begin
+            _StrId = atom_to_list(_ConsumerId),
+            list_to_atom(
+              string:substr(_StrId, 1,
+                            string:str(_StrId, ?DEF_CONSUMER_SUFFIX) - 1))
+        end).
 
 %% Retrieve the backend-db info
 -define(DEF_DB_PATH_INDEX,   "index"  ).

@@ -41,8 +41,8 @@
 -define(DEF_DB_MODULE, 'leo_mq_eleveldb'). % Not used in anywhere.
 
 -define(DEF_BACKEND_DB_PROCS, 3).
--define(DEF_BACKEND_DB,      'bitcask').
--define(DEF_DB_ROOT_PATH,    "mq"  ).
+-define(DEF_BACKEND_DB,  'bitcask').
+-define(DEF_DB_ROOT_PATH, "mq"  ).
 
 -define(DEF_CONSUME_MAX_INTERVAL, 3000).
 -define(DEF_CONSUME_MIN_INTERVAL, 1000).
@@ -150,13 +150,19 @@ status(Id) ->
 %% @doc Retrieve registered consumers
 %%
 -spec(consumers() ->
-             {ok, Consumers} when Consumers::[atom()]).
+             {ok, Consumers} when Consumers::[{ConsumerId,
+                                               State, MsgCount}],
+                                  ConsumerId::atom(),
+                                  State::state_of_compaction(),
+                                  MsgCount::non_neg_integer()).
 consumers() ->
     case supervisor:which_children(leo_mq_sup) of
         [] ->
             {ok, []};
         Children ->
-            {ok, [ {Worker, element(2,leo_mq_consumer:state(Worker))}
+            {ok, [ { Worker,
+                     element(2,leo_mq_consumer:state(Worker)),
+                     element(2,status(?publisher_id(Worker))) }
                    || {Worker,_,worker,[leo_mq_consumer]} <- Children]}
     end.
 
