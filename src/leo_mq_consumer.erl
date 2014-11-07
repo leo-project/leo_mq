@@ -198,7 +198,7 @@ format_status(_Opt, [_PDict, State]) ->
                                                                 State::#state{}).
 idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id} = State) ->
     NextStatus = ?ST_RUNNING,
-    State_1 = State#state{status        = NextStatus,
+    State_1 = State#state{status = NextStatus,
                           start_datetime = leo_date:now()},
     gen_fsm:reply(From, ok),
     ok = run(Id),
@@ -363,7 +363,7 @@ consume(Id, Mod, BackendMessage, NumOfBatchProcs) ->
                              _ ->
                                  Val
                          end,
-                ok = erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
+                erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
                 ok = leo_backend_db_api:delete(BackendMessage, Key),
                 consume(Id, Mod, BackendMessage, NumOfBatchProcs - 1);
             not_found = Cause ->
