@@ -238,13 +238,14 @@ idling(_, State) ->
 running(#event_info{event = ?EVENT_RUN},
         #state{id = Id,
                mq_properties = #mq_properties{
-                                  max_interval = MaxInterval,
-                                  min_interval = MinInterval}} = State) ->
+                                  max_interval = MaxInterval},
+               waiting_time = WaitingTime
+              } = State) ->
     {NextStatus, State_2} =
         case catch consume(State) of
             %% Execute the data-compaction repeatedly
             ok ->
-                Time = interval(MinInterval, MaxInterval),
+                Time = interval(WaitingTime, MaxInterval),
                 ok = timer:sleep(Time),
                 ok = run(Id),
                 {?ST_RUNNING,  State};
@@ -439,18 +440,18 @@ defer_consume(Id, MaxInterval, MinInterval) ->
 
 %% @doc Retrieve interval of the waiting proc
 %% @private
--spec(interval(MinInterval, MaxInterval) ->
-             Interval when MinInterval::non_neg_integer(),
-                           MaxInterval::non_neg_integer(),
-                           Interval::non_neg_integer()).
-interval(MinInterval, MaxInterval) ->
+-spec(interval(Interval, MaxInterval) ->
+             Interval when Interval::non_neg_integer(),
+                           MaxInterval::non_neg_integer()).
+interval(Interval, MaxInterval) when Interval < MaxInterval ->
     Interval_1 = random:uniform(MaxInterval),
-    Interval_2 = case (Interval_1 < MinInterval) of
-                     true  -> MinInterval;
+    Interval_2 = case (Interval_1 < Interval) of
+                     true  -> Interval;
                      false -> Interval_1
                  end,
-    Interval_2.
-
+    Interval_2;
+interval(Interval,_) ->
+    Interval.
 
 
 %% @doc Decrease the waiting time
