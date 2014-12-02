@@ -37,7 +37,6 @@
 -export([run/1,
          suspend/1,
          resume/1,
-         finish/1,
          state/1]).
 
 %% gen_fsm callbacks
@@ -119,14 +118,6 @@ suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
-
-
-%% @doc Remove an object from the object-storage - (logical-delete)
-%%
--spec(finish(Id) ->
-             ok | {error, any()} when Id::atom()).
-finish(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_FINISH}).
 
 
 %% @doc Retrieve the storage stats specfied by Id
@@ -233,30 +224,26 @@ running(#event_info{event = ?EVENT_RUN},
                mq_properties = #mq_properties{
                                   max_interval = MaxInterval,
                                   min_interval = MinInterval}} = State) ->
-    NextStatus = ?ST_RUNNING,
-    State_2 =
+    {NextStatus, State_2} =
         case catch consume(State) of
             %% Execute the data-compaction repeatedly
             ok ->
                 Time = interval(MinInterval, MaxInterval),
                 ok = timer:sleep(Time),
                 ok = run(Id),
-                State;
+                {?ST_RUNNING,  State};
             %% Reached end of the object-container
             not_found ->
-                ok = finish(Id),
                 {_,State_1} = after_execute(ok, State),
-                State_1;
+                {?ST_IDLING,  State_1};
             %% An unxepected error has occured
             {'EXIT', Cause} ->
-                ok = finish(Id),
                 {_,State_1} = after_execute({error, Cause}, State),
-                State_1;
+                {?ST_IDLING,  State_1};
             %% An epected error has occured
             {error, Cause} ->
-                ok = finish(Id),
                 {_,State_1} = after_execute({error, Cause}, State),
-                State_1
+                {?ST_IDLING,  State_1}
         end,
     {next_state, NextStatus, State_2#state{status = NextStatus}};
 
@@ -264,13 +251,6 @@ running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_FINISH}, #state{id = Id} = State) ->
-    %% Notify a message to the compaction-manager
-    NextStatus = ?ST_IDLING,
-    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
-                      ?DEF_CHECK_MIN_INTERVAL_2),
-    {next_state, NextStatus, State#state{status = NextStatus,
-                                         start_datetime = 0}};
 running(_, State) ->
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -327,7 +307,9 @@ suspending(_Other, From, State) ->
 %%--------------------------------------------------------------------
 %% @doc after processing of consumption messages
 %% @private
-after_execute(Ret, State) ->
+after_execute(Ret, #state{id = Id} = State) ->
+    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
+                      ?DEF_CHECK_MIN_INTERVAL_2),
     {Ret, State}.
 
 
