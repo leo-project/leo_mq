@@ -37,19 +37,18 @@
 
 
 -record(mq_properties, {
-          publisher_id :: atom(),
-          consumer_id  :: atom(),
-          mod_callback :: module(),
-
-          db_name           :: atom(),
-          db_procs = 1      :: integer(),
-          root_path = []    :: string(),
-          mqdb_id           :: atom(),
-          mqdb_path = []    :: string(),
-
-          max_interval = 1  :: integer(),
-          min_interval = 1  :: integer(),
-          num_of_batch_processes = 1 :: pos_integer()
+          publisher_id :: atom(),         %% publisher-id
+          consumer_id  :: atom(),         %% consumer-id
+          mod_callback :: module(),       %% callback module name
+          db_name           :: atom(),    %% db's id
+          db_procs = 1      :: integer(), %% db's processes
+          root_path = []    :: string(),  %% db's path
+          mqdb_id           :: atom(),    %% mqdb's id
+          mqdb_path = []    :: string(),  %% mqdb's path
+          max_interval = 1000  :: pos_integer(), %% max waiting time (default: 1000msec (1sec))
+          min_interval = 10    :: pos_integer(), %% min waiting time (default: 10msec)
+          step_interval = 100  :: pos_integer(), %% step waiting time (default: 100msec)
+          num_of_batch_processes = 1 :: pos_integer() %% batch prcesses
          }).
 
 -record(mq_log, {
@@ -81,18 +80,23 @@
 -define(EVENT_RESUME,   'resume').
 -define(EVENT_FINISH,   'finish').
 -define(EVENT_STATE,    'state').
+-define(EVENT_INCR_WT,  'incr_waiting_time').
+-define(EVENT_DECR_WT,  'decr_waiting_time').
 -type(event_of_compaction() ::?EVENT_RUN      |
                               ?EVENT_DIAGNOSE |
                               ?EVENT_LOCK     |
                               ?EVENT_SUSPEND  |
                               ?EVENT_RESUME   |
                               ?EVENT_FINISH   |
-                              ?EVENT_STATE).
+                              ?EVENT_STATE    |
+                              ?EVENT_INCR_WT  |
+                              ?EVENT_DECR_WT
+                              ).
 
 
 -define(DEF_CHECK_MAX_INTERVAL_1, timer:seconds(1)).
 -define(DEF_CHECK_MIN_INTERVAL_1, timer:seconds(0)).
--define(DEF_CHECK_MAX_INTERVAL_2, timer:seconds(30)).
+-define(DEF_CHECK_MAX_INTERVAL_2, timer:seconds(100)).
 -define(DEF_CHECK_MIN_INTERVAL_2, timer:seconds(10)).
 
 -define(DEF_CONSUMER_SUFFIX, "_consumer").

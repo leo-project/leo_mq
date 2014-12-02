@@ -34,7 +34,9 @@
 -export([new/2, new/3,
          publish/3, suspend/1, resume/1,
          status/1,
-         consumers/0
+         consumers/0,
+         incr_waiting_time/1,
+         decr_waiting_time/1
         ]).
 
 -define(APP_NAME,      'leo_mq').
@@ -166,6 +168,25 @@ consumers() ->
                       num_of_messages = element(2,status(?publisher_id(Worker)))}
                    || {Worker,_,worker,[leo_mq_consumer]} <- Children]}
     end.
+
+
+%% @doc Increase waiting time
+%%
+-spec(incr_waiting_time(Id) ->
+             ok | {error, any()} when Id::atom()).
+incr_waiting_time(Id) ->
+    Id_1 = ?consumer_id(Id),
+    leo_mq_consumer:incr_waiting_time(Id_1).
+
+
+%% @doc Decrease waiting time
+%%
+-spec(decr_waiting_time(Id) ->
+             ok | {error, any()} when Id::atom()).
+decr_waiting_time(Id) ->
+    Id_1 = ?consumer_id(Id),
+    leo_mq_consumer:decr_waiting_time(Id_1).
+
 
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS

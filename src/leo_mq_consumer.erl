@@ -37,7 +37,10 @@
 -export([run/1,
          suspend/1,
          resume/1,
-         state/1]).
+         state/1,
+         incr_waiting_time/1,
+         decr_waiting_time/1
+        ]).
 
 %% gen_fsm callbacks
 -export([init/1,
@@ -128,14 +131,27 @@ state(Id) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_STATE}, ?DEF_TIMEOUT).
 
 
+%% @doc Increase waiting-time in order to down load of processing
+-spec(incr_waiting_time(Id) ->
+             {ok, state_of_mq()} when Id::atom()).
+incr_waiting_time(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_WT}).
+
+
+%% @doc Decrease waiting-time in order to up consuming speed
+-spec(decr_waiting_time(Id) ->
+             {ok, state_of_mq()} when Id::atom()).
+decr_waiting_time(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_WT}).
+
+
 %%====================================================================
 %% GEN_SERVER CALLBACKS
 %%====================================================================
 %% @doc Initiates the server
 %%
 init([Id, PublisherId, Props]) ->
-    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_1,
-                      ?DEF_CHECK_MIN_INTERVAL_1),
+    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_1, ?DEF_CHECK_MIN_INTERVAL_1),
     {ok, ?ST_IDLING, #state{id = Id,
                             publisher_id  = PublisherId,
                             mq_properties = Props}}.
@@ -251,6 +267,42 @@ running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
+running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
+                                                    mq_properties = #mq_properties{max_interval  = MaxWaitingTime,
+                                                                                   step_interval = StepWaitingTime},
+                                                    waiting_time  = WaitingTime} = State) ->
+    WaitingTime_1 = WaitingTime + StepWaitingTime,
+    {IsOverThreshold, WaitingTime_2} =
+        case (WaitingTime_1 > MaxWaitingTime) of
+            true  -> {true, MaxWaitingTime};
+            false -> {false, WaitingTime_1}
+        end,
+    NextStatus = case IsOverThreshold of
+                     true ->
+                         ?ST_SUSPENDING;
+                     false ->
+                         ok = run(Id),
+                         ?ST_RUNNING
+                 end,
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         waiting_time = WaitingTime_2}};
+
+running(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
+                                                    mq_properties = #mq_properties{min_interval  = MinWaitingTime,
+                                                                                   step_interval = StepWaitingTime},
+                                                    waiting_time  = WaitingTime} = State) ->
+    WaitingTime_1 = WaitingTime - StepWaitingTime,
+    WaitingTime_2 = case (WaitingTime_1 < MinWaitingTime) of
+                        true ->
+                            MinWaitingTime;
+                        false ->
+                            WaitingTime_1
+                    end,
+    ok = run(Id),
+    NextStatus = ?ST_RUNNING,
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         waiting_time = WaitingTime_2}};
+
 running(_, State) ->
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -278,6 +330,19 @@ suspending(#event_info{event = ?EVENT_RUN}, State) ->
 suspending(#event_info{event = ?EVENT_STATE}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
+suspending(#event_info{event = ?EVENT_INCR_WT}, State) ->
+    NextStatus = ?ST_SUSPENDING,
+    {next_state, NextStatus, State#state{status = NextStatus}};
+suspending(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
+                                                       mq_properties = #mq_properties{min_interval  = MinWaitingTime,
+                                                                                      step_interval = StepWaitingTime},
+                                                       waiting_time = WaitingTime} = State) ->
+    WaitingTime_1 = decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
+    NextStatus = ?ST_RUNNING,
+    timer:apply_after(
+      timer:seconds(1), ?MODULE, run, [Id]),
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         waiting_time = WaitingTime_1}};
 suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -385,3 +450,23 @@ interval(MinInterval, MaxInterval) ->
                      false -> Interval_1
                  end,
     Interval_2.
+
+
+
+%% @doc Decrease the waiting time
+%% @private
+-spec(decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
+             NewWaitingTime when WaitingTime::non_neg_integer(),
+                                 MinWaitingTime::non_neg_integer(),
+                                 StepWaitingTime::non_neg_integer(),
+                                 NewWaitingTime::non_neg_integer()).
+decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
+
+    WaitingTime_1 = WaitingTime - StepWaitingTime,
+    case (WaitingTime_1 < MinWaitingTime) of
+        true ->
+            MinWaitingTime;
+        false ->
+            WaitingTime_1
+    end.
+
