@@ -31,10 +31,40 @@
 -define(MQ_PROP_DB_PROCS,          'db_procs').
 -define(MQ_PROP_ROOT_PATH,         'root_path').
 -define(MQ_PROP_NUM_OF_BATCH_PROC, 'num_of_batch_processes').
--define(MQ_PROP_MAX_INTERVAL,      'max_interval').
--define(MQ_PROP_MIN_INTERVAL,      'min_interval').
 -define(MQ_SUBSCRIBE_FUN,          'subscribe').
 
+-define(MQ_PROP_MAX_INTERVAL,    'max_interval').
+-define(MQ_PROP_MIN_INTERVAL,    'min_interval').
+-define(MQ_PROP_REG_INTERVAL,    'reg_interval').
+-define(MQ_PROP_STEP_INTERVAL,   'step_interval').
+-define(MQ_PROP_MAX_BATCH_MSGS,  'max_batch_of_msgs').
+-define(MQ_PROP_MIN_BATCH_MSGS,  'min_batch_of_msgs').
+-define(MQ_PROP_REG_BATCH_MSGS,  'reg_batch_of_msgs').
+-define(MQ_PROP_STEP_BATCH_MSGS, 'step_batch_of_msgs').
+
+-define(DEF_BACKEND_DB_PROCS, 3).
+-define(DEF_BACKEND_DB,  'bitcask').
+-define(DEF_DB_ROOT_PATH, "mq"  ).
+
+-ifdef(TEST).
+-define(DEF_CONSUME_MAX_INTERVAL,    1000).
+-define(DEF_CONSUME_MIN_INTERVAL,     100).
+-define(DEF_CONSUME_REG_INTERVAL,     300).
+-define(DEF_CONSUME_STEP_INTERVAL,    100).
+-define(DEF_CONSUME_MAX_BATCH_MSGS,    10).
+-define(DEF_CONSUME_MIN_BATCH_MSGS,     1).
+-define(DEF_CONSUME_REG_BATCH_MSGS,     5).
+-define(DEF_CONSUME_STEP_BATCH_MSGS,    1).
+-else.
+-define(DEF_CONSUME_MAX_INTERVAL,    3000).
+-define(DEF_CONSUME_MIN_INTERVAL,     100).
+-define(DEF_CONSUME_REG_INTERVAL,     300).
+-define(DEF_CONSUME_STEP_INTERVAL,    100).
+-define(DEF_CONSUME_MAX_BATCH_MSGS,  1000).
+-define(DEF_CONSUME_MIN_BATCH_MSGS,   100).
+-define(DEF_CONSUME_REG_BATCH_MSGS,   300).
+-define(DEF_CONSUME_STEP_BATCH_MSGS,  100).
+-endif.
 
 -record(mq_properties, {
           publisher_id :: atom(),         %% publisher-id
@@ -45,10 +75,16 @@
           root_path = []    :: string(),  %% db's path
           mqdb_id           :: atom(),    %% mqdb's id
           mqdb_path = []    :: string(),  %% mqdb's path
-          max_interval = 1000  :: pos_integer(), %% max waiting time (default: 1000msec (1sec))
-          min_interval = 10    :: pos_integer(), %% min waiting time (default: 10msec)
-          step_interval = 100  :: pos_integer(), %% step waiting time (default: 100msec)
-          num_of_batch_processes = 1 :: pos_integer() %% batch prcesses
+          %% interval between batch-procs
+          max_interval = 1000    :: pos_integer(), %% max waiting time (default: 1000msec (1sec))
+          min_interval = 10      :: pos_integer(), %% min waiting time (default: 10msec)
+          regular_interval = 300 :: pos_integer(), %% regular waiting time (default: 300msec)
+          step_interval = 100    :: pos_integer(), %% step waiting time (default: 100msec)
+          %% num of batch procs
+          max_batch_of_msgs = 1000    :: pos_integer(), %% max num of batch of messages
+          min_batch_of_msgs = 100     :: pos_integer(), %% min num of batch of messages
+          regular_batch_of_msgs = 300 :: pos_integer(), %% regular num of batch of messages
+          step_batch_of_msgs = 100    :: pos_integer()  %% step num of batch of messages
          }).
 
 -record(mq_log, {
@@ -82,6 +118,8 @@
 -define(EVENT_STATE,    'state').
 -define(EVENT_INCR_WT,  'incr_waiting_time').
 -define(EVENT_DECR_WT,  'decr_waiting_time').
+-define(EVENT_INCR_BP,  'incr_batch_of_msgs').
+-define(EVENT_DECR_BP,  'decr_batch_of_msgs').
 -type(event_of_compaction() ::?EVENT_RUN      |
                               ?EVENT_DIAGNOSE |
                               ?EVENT_LOCK     |
@@ -90,7 +128,9 @@
                               ?EVENT_FINISH   |
                               ?EVENT_STATE    |
                               ?EVENT_INCR_WT  |
-                              ?EVENT_DECR_WT
+                              ?EVENT_DECR_WT  |
+                              ?EVENT_INCR_BP  |
+                              ?EVENT_DECR_BP
                               ).
 
 

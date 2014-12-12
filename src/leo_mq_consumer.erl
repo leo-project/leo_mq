@@ -38,8 +38,8 @@
          suspend/1,
          resume/1,
          state/1,
-         incr_waiting_time/1,
-         decr_waiting_time/1
+         incr_interval/1, decr_interval/1,
+         incr_batch_of_msgs/1,decr_batch_of_msgs/1
         ]).
 
 %% gen_fsm callbacks
@@ -70,7 +70,8 @@
           status = ?ST_IDLING :: state_of_mq(),
           publisher_id        :: atom(),
           mq_properties = #mq_properties{} :: #mq_properties{},
-          waiting_time = 0    :: non_neg_integer(),
+          interval = 0    :: non_neg_integer(),
+          batch_of_msgs = 0   :: non_neg_integer(),
           start_datetime = 0  :: non_neg_integer()
          }).
 
@@ -132,17 +133,31 @@ state(Id) ->
 
 
 %% @doc Increase waiting-time in order to down load of processing
--spec(incr_waiting_time(Id) ->
+-spec(incr_interval(Id) ->
              {ok, state_of_mq()} when Id::atom()).
-incr_waiting_time(Id) ->
+incr_interval(Id) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_WT}).
 
 
 %% @doc Decrease waiting-time in order to up consuming speed
--spec(decr_waiting_time(Id) ->
+-spec(decr_interval(Id) ->
              {ok, state_of_mq()} when Id::atom()).
-decr_waiting_time(Id) ->
+decr_interval(Id) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_WT}).
+
+
+%% @doc Increase batch-processes in order to  up consuming speed
+-spec(incr_batch_of_msgs(Id) ->
+             {ok, state_of_mq()} when Id::atom()).
+incr_batch_of_msgs(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_BP}).
+
+
+%% @doc Decrease batch-processes in order to down load of processing
+-spec(decr_batch_of_msgs(Id) ->
+             {ok, state_of_mq()} when Id::atom()).
+decr_batch_of_msgs(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_BP}).
 
 
 %%====================================================================
@@ -226,6 +241,7 @@ idling(#event_info{event = ?EVENT_RUN}, #state{id = Id} = State) ->
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
     {next_state, NextStatus, State#state{status = NextStatus}};
+
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -239,13 +255,13 @@ running(#event_info{event = ?EVENT_RUN},
         #state{id = Id,
                mq_properties = #mq_properties{
                                   max_interval = MaxInterval},
-               waiting_time = WaitingTime
+               interval = Interval
               } = State) ->
     {NextStatus, State_2} =
         case catch consume(State) of
             %% Execute the data-compaction repeatedly
             ok ->
-                Time = interval(WaitingTime, MaxInterval),
+                Time = interval(Interval, MaxInterval),
                 ok = timer:sleep(Time),
                 ok = run(Id),
                 {?ST_RUNNING,  State};
@@ -268,41 +284,69 @@ running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
-                                                    mq_properties = #mq_properties{max_interval  = MaxWaitingTime,
-                                                                                   step_interval = StepWaitingTime},
-                                                    waiting_time  = WaitingTime} = State) ->
-    WaitingTime_1 = WaitingTime + StepWaitingTime,
-    {IsOverThreshold, WaitingTime_2} =
-        case (WaitingTime_1 > MaxWaitingTime) of
-            true  -> {true, MaxWaitingTime};
-            false -> {false, WaitingTime_1}
+running(#event_info{event = ?EVENT_INCR_WT},
+        #state{id = Id,
+               mq_properties = #mq_properties{max_interval  = MaxInterval,
+                                              step_interval = StepInterval,
+                                              min_batch_of_msgs = MinBatchProcs},
+               interval = Interval,
+               batch_of_msgs = BatchOfMsgs} = State) ->
+    {NextStatus, Interval_1} =
+        case (Interval >= MaxInterval andalso
+              BatchOfMsgs =< MinBatchProcs) of
+            true ->
+                {?ST_SUSPENDING, MaxInterval};
+            false ->
+                ok = run(Id),
+                {?ST_RUNNING,
+                 incr_interval_fun(Interval, MaxInterval, StepInterval)}
         end,
-    NextStatus = case IsOverThreshold of
-                     true ->
-                         ?ST_SUSPENDING;
-                     false ->
-                         ok = run(Id),
-                         ?ST_RUNNING
-                 end,
     {next_state, NextStatus, State#state{status = NextStatus,
-                                         waiting_time = WaitingTime_2}};
+                                         interval = Interval_1}};
 
-running(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
-                                                    mq_properties = #mq_properties{min_interval  = MinWaitingTime,
-                                                                                   step_interval = StepWaitingTime},
-                                                    waiting_time  = WaitingTime} = State) ->
-    WaitingTime_1 = WaitingTime - StepWaitingTime,
-    WaitingTime_2 = case (WaitingTime_1 < MinWaitingTime) of
-                        true ->
-                            MinWaitingTime;
-                        false ->
-                            WaitingTime_1
-                    end,
+running(#event_info{event = ?EVENT_DECR_WT},
+        #state{id = Id,
+               mq_properties = #mq_properties{min_interval = MinInterval,
+                                              step_interval = StepInterval},
+               interval = Interval} = State) ->
+    Interval_1 =
+        decr_interval_fun(Interval, MinInterval, StepInterval),
     ok = run(Id),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus,
-                                         waiting_time = WaitingTime_2}};
+                                         interval = Interval_1}};
+
+running(#event_info{event = ?EVENT_INCR_BP},
+        #state{id = Id,
+               mq_properties = #mq_properties{max_batch_of_msgs  = MaxBatchOfMsgs,
+                                              step_batch_of_msgs = StepBatchOfMsgs},
+               batch_of_msgs = BatchOfMsgs} = State) ->
+    BatchOfMsgs_1 =
+        incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
+    ok = run(Id),
+    NextStatus = ?ST_RUNNING,
+    {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
+                                         status = NextStatus}};
+
+running(#event_info{event = ?EVENT_DECR_BP},
+        #state{id = Id,
+               mq_properties = #mq_properties{min_batch_of_msgs  = MinBatchOfMsgs,
+                                              step_batch_of_msgs = StepBatchOfMsgs,
+                                              max_interval       = MaxInterval},
+               batch_of_msgs = BatchOfMsgs,
+               interval = Interval} = State) ->
+    {NextStatus, BatchOfMsgs_1} =
+        case (Interval >= MaxInterval andalso
+              BatchOfMsgs =< MinBatchOfMsgs) of
+            true ->
+                {?ST_SUSPENDING, MinBatchOfMsgs};
+            false ->
+                ok = run(Id),
+                {?ST_RUNNING,
+                 decr_batch_procs_fun(BatchOfMsgs, MinBatchOfMsgs, StepBatchOfMsgs)}
+        end,
+    {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
+                                         status = NextStatus}};
 
 running(_, State) ->
     NextStatus = ?ST_RUNNING,
@@ -328,22 +372,34 @@ running(_, From, State) ->
 suspending(#event_info{event = ?EVENT_RUN}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
+
 suspending(#event_info{event = ?EVENT_STATE}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
-suspending(#event_info{event = ?EVENT_INCR_WT}, State) ->
-    NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}};
-suspending(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
-                                                       mq_properties = #mq_properties{min_interval  = MinWaitingTime,
-                                                                                      step_interval = StepWaitingTime},
-                                                       waiting_time = WaitingTime} = State) ->
-    WaitingTime_1 = decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
+
+suspending(#event_info{event = ?EVENT_DECR_WT},
+           #state{id = Id,
+                  mq_properties = #mq_properties{min_interval  = MinInterval,
+                                                 step_interval = StepInterval},
+                  interval = Interval} = State) ->
+    Interval_1 = decr_interval_fun(Interval, MinInterval, StepInterval),
     NextStatus = ?ST_RUNNING,
     timer:apply_after(
       timer:seconds(1), ?MODULE, run, [Id]),
     {next_state, NextStatus, State#state{status = NextStatus,
-                                         waiting_time = WaitingTime_1}};
+                                         interval = Interval_1}};
+suspending(#event_info{event = ?EVENT_INCR_BP},
+           #state{id = Id,
+                  mq_properties = #mq_properties{max_batch_of_msgs  = MaxBatchOfMsgs,
+                                                 step_batch_of_msgs = StepBatchOfMsgs},
+                  batch_of_msgs = BatchOfMsgs} = State) ->
+    BatchOfMsgs_1 =
+        incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
+    NextStatus = ?ST_RUNNING,
+    timer:apply_after(
+      timer:seconds(1), ?MODULE, run, [Id]),
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         batch_of_msgs = BatchOfMsgs_1}};
 suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -387,7 +443,7 @@ consume(#state{mq_properties = #mq_properties{
                                   publisher_id = PublisherId,
                                   mod_callback = Mod,
                                   mqdb_id = BackendMessage,
-                                  num_of_batch_processes = NumOfBatchProcs
+                                  regular_batch_of_msgs = NumOfBatchProcs
                                  }} = _State) ->
     consume(PublisherId, Mod, BackendMessage, NumOfBatchProcs).
 
@@ -456,18 +512,69 @@ interval(Interval,_) ->
 
 %% @doc Decrease the waiting time
 %% @private
--spec(decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
-             NewWaitingTime when WaitingTime::non_neg_integer(),
-                                 MinWaitingTime::non_neg_integer(),
-                                 StepWaitingTime::non_neg_integer(),
-                                 NewWaitingTime::non_neg_integer()).
-decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
-
-    WaitingTime_1 = WaitingTime - StepWaitingTime,
-    case (WaitingTime_1 < MinWaitingTime) of
+-spec(incr_interval_fun(Interval, MaxInterval, StepInterval) ->
+             NewInterval when Interval::non_neg_integer(),
+                              MaxInterval::non_neg_integer(),
+                              StepInterval::non_neg_integer(),
+                              NewInterval::non_neg_integer()).
+incr_interval_fun(Interval, MaxInterval, StepInterval) ->
+    Interval_1 = Interval + StepInterval,
+    case (Interval_1 > MaxInterval) of
         true ->
-            MinWaitingTime;
+            MaxInterval;
         false ->
-            WaitingTime_1
+            Interval_1
     end.
 
+
+%% @doc Decrease the waiting time
+%% @private
+-spec(decr_interval_fun(Interval, MinInterval, StepInterval) ->
+             NewInterval when Interval::non_neg_integer(),
+                              MinInterval::non_neg_integer(),
+                              StepInterval::non_neg_integer(),
+                              NewInterval::non_neg_integer()).
+decr_interval_fun(Interval, MinInterval, StepInterval) ->
+
+    Interval_1 = Interval - StepInterval,
+    case (Interval_1 < MinInterval) of
+        true ->
+            MinInterval;
+        false ->
+            Interval_1
+    end.
+
+
+%% @doc Increase the num of messages/batch-proccessing
+%% @private
+-spec(incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
+             NewBatchProcs when BatchProcs::non_neg_integer(),
+                                MaxBatchProcs::non_neg_integer(),
+                                StepBatchProcs::non_neg_integer(),
+                                NewBatchProcs::non_neg_integer()).
+incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
+
+    BatchProcs_1 = BatchProcs + StepBatchProcs,
+    case (BatchProcs_1 > MaxBatchProcs) of
+        true  ->
+            MaxBatchProcs;
+        false ->
+            BatchProcs_1
+    end.
+
+
+%% @doc decrease the num of messages/batch-proccessing
+%% @private
+-spec(decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+             NewBatchProcs when BatchProcs::non_neg_integer(),
+                                MinBatchProcs::non_neg_integer(),
+                                StepBatchProcs::non_neg_integer(),
+                                NewBatchProcs::non_neg_integer()).
+decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+    BatchProcs_1 = BatchProcs - StepBatchProcs,
+    case (BatchProcs_1 < MinBatchProcs) of
+        true ->
+            MinBatchProcs;
+        false ->
+            BatchProcs_1
+    end.
