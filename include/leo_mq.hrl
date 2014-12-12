@@ -116,8 +116,8 @@
 -define(EVENT_RESUME,   'resume').
 -define(EVENT_FINISH,   'finish').
 -define(EVENT_STATE,    'state').
--define(EVENT_INCR_WT,  'incr_waiting_time').
--define(EVENT_DECR_WT,  'decr_waiting_time').
+-define(EVENT_INCR_WT,  'incr_interval').
+-define(EVENT_DECR_WT,  'decr_interval').
 -define(EVENT_INCR_BP,  'incr_batch_of_msgs').
 -define(EVENT_DECR_BP,  'decr_batch_of_msgs').
 -type(event_of_compaction() ::?EVENT_RUN      |
