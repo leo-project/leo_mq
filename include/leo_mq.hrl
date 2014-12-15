@@ -33,14 +33,14 @@
 -define(MQ_PROP_NUM_OF_BATCH_PROC, 'num_of_batch_processes').
 -define(MQ_SUBSCRIBE_FUN,          'subscribe').
 
--define(MQ_PROP_MAX_INTERVAL,    'max_interval').
--define(MQ_PROP_MIN_INTERVAL,    'min_interval').
--define(MQ_PROP_REG_INTERVAL,    'reg_interval').
--define(MQ_PROP_STEP_INTERVAL,   'step_interval').
--define(MQ_PROP_MAX_BATCH_MSGS,  'max_batch_of_msgs').
--define(MQ_PROP_MIN_BATCH_MSGS,  'min_batch_of_msgs').
--define(MQ_PROP_REG_BATCH_MSGS,  'reg_batch_of_msgs').
--define(MQ_PROP_STEP_BATCH_MSGS, 'step_batch_of_msgs').
+-define(MQ_PROP_INTERVAL_MAX,    'interval_max').
+-define(MQ_PROP_INTERVAL_MIN,    'interval_min').
+-define(MQ_PROP_INTERVAL_REG,    'interval_reg').
+-define(MQ_PROP_INTERVAL_STEP,   'interval_step').
+-define(MQ_PROP_BATCH_MSGS_MAX,  'batch_of_msgs_max').
+-define(MQ_PROP_BATCH_MSGS_MIN,  'batch_of_msgs_min').
+-define(MQ_PROP_BATCH_MSGS_REG,  'batch_of_msgs_reg').
+-define(MQ_PROP_BATCH_MSGS_STEP, 'batch_of_msgs_step').
 
 -define(DEF_BACKEND_DB_PROCS, 3).
 -define(DEF_BACKEND_DB,  'bitcask').

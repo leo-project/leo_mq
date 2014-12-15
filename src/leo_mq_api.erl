@@ -91,15 +91,15 @@ prop_list_to_mq_properties(Id, Mod, Props) ->
                  db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props, ?DEF_BACKEND_DB_PROCS),
                  root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Props, ?DEF_DB_ROOT_PATH),
                  %% interval between batchs
-                 max_interval     = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL,  Props, ?DEF_CONSUME_MAX_INTERVAL),
-                 min_interval     = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL,  Props, ?DEF_CONSUME_MIN_INTERVAL),
-                 regular_interval = leo_misc:get_value(?MQ_PROP_REG_INTERVAL,  Props, ?DEF_CONSUME_REG_INTERVAL),
-                 step_interval    = leo_misc:get_value(?MQ_PROP_STEP_INTERVAL, Props, ?DEF_CONSUME_STEP_INTERVAL),
+                 max_interval     = leo_misc:get_value(?MQ_PROP_INTERVAL_MAX,  Props, ?DEF_CONSUME_MAX_INTERVAL),
+                 min_interval     = leo_misc:get_value(?MQ_PROP_INTERVAL_MIN,  Props, ?DEF_CONSUME_MIN_INTERVAL),
+                 regular_interval = leo_misc:get_value(?MQ_PROP_INTERVAL_REG,  Props, ?DEF_CONSUME_REG_INTERVAL),
+                 step_interval    = leo_misc:get_value(?MQ_PROP_INTERVAL_STEP, Props, ?DEF_CONSUME_STEP_INTERVAL),
                  %% batch of messages
-                 max_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_MAX_BATCH_MSGS,  Props, ?DEF_CONSUME_MAX_BATCH_MSGS),
-                 min_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_MIN_BATCH_MSGS,  Props, ?DEF_CONSUME_MIN_BATCH_MSGS),
-                 regular_batch_of_msgs = leo_misc:get_value(?MQ_PROP_REG_BATCH_MSGS,  Props, ?DEF_CONSUME_REG_BATCH_MSGS),
-                 step_batch_of_msgs    = leo_misc:get_value(?MQ_PROP_STEP_BATCH_MSGS, Props, ?DEF_CONSUME_STEP_BATCH_MSGS)
+                 max_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MAX,  Props, ?DEF_CONSUME_MAX_BATCH_MSGS),
+                 min_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MIN,  Props, ?DEF_CONSUME_MIN_BATCH_MSGS),
+                 regular_batch_of_msgs = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_REG,  Props, ?DEF_CONSUME_REG_BATCH_MSGS),
+                 step_batch_of_msgs    = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_STEP, Props, ?DEF_CONSUME_STEP_BATCH_MSGS)
                 },
     {MQDBMessageId,
      MQDBMessagePath} = ?backend_db_info(Id,
