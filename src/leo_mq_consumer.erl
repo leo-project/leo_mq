@@ -165,11 +165,15 @@ decr_batch_of_msgs(Id) ->
 %%====================================================================
 %% @doc Initiates the server
 %%
-init([Id, PublisherId, Props]) ->
+init([Id, PublisherId, #mq_properties{regular_interval = Interval,
+                                      regular_batch_of_msgs = BatchOfMsgs} = Props]) ->
     _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_1, ?DEF_CHECK_MIN_INTERVAL_1),
     {ok, ?ST_IDLING, #state{id = Id,
                             publisher_id  = PublisherId,
-                            mq_properties = Props}}.
+                            mq_properties = Props,
+                            interval      = Interval,
+                            batch_of_msgs = BatchOfMsgs
+                           }}.
 
 %% @doc Handle events
 handle_event(_Event, StateName, State) ->
@@ -242,6 +246,32 @@ idling(#event_info{event = ?EVENT_RUN}, #state{id = Id} = State) ->
     ok = run(Id),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
+idling(#event_info{event = ?EVENT_INCR_WT},
+       #state{mq_properties = #mq_properties{max_interval  = MaxInterval,
+                                             step_interval = StepInterval},
+              interval = Interval} = State) ->
+    NextStatus = ?ST_IDLING,
+    Interval_1 = incr_interval_fun(Interval, MaxInterval, StepInterval),
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         interval = Interval_1}};
+idling(#event_info{event = ?EVENT_DECR_WT},
+       #state{mq_properties = #mq_properties{regular_interval = RegInterval}} = State) ->
+    NextStatus = ?ST_IDLING,
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         interval = RegInterval}};
+idling(#event_info{event = ?EVENT_INCR_BP},
+       #state{mq_properties = #mq_properties{regular_batch_of_msgs  = RegBatchOfMsgs}} = State) ->
+    NextStatus = ?ST_IDLING,
+    {next_state, NextStatus, State#state{batch_of_msgs = RegBatchOfMsgs,
+                                         status = NextStatus}};
+idling(#event_info{event = ?EVENT_DECR_BP},
+       #state{mq_properties = #mq_properties{min_batch_of_msgs  = MinBatchOfMsgs,
+                                             step_batch_of_msgs = StepBatchOfMsgs},
+              batch_of_msgs = BatchOfMsgs} = State) ->
+    NextStatus = ?ST_IDLING,
+    BatchOfMsgs_1 = decr_batch_procs_fun(BatchOfMsgs, MinBatchOfMsgs, StepBatchOfMsgs),
+    {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
+                                         status = NextStatus}};
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -251,19 +281,16 @@ idling(_, State) ->
 -spec(running(EventInfo, State) ->
              {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                    State::#state{}).
-running(#event_info{event = ?EVENT_RUN},
-        #state{id = Id,
-               mq_properties = #mq_properties{
-                                  max_interval = MaxInterval},
-               interval = Interval
-              } = State) ->
+running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
+                                                interval = Interval} = State) ->
+    %% Consume messages in the queue
     {NextStatus, State_2} =
         case catch consume(State) of
             %% Execute the data-compaction repeatedly
             ok ->
-                Time = interval(Interval, MaxInterval),
-                ok = timer:sleep(Time),
-                ok = run(Id),
+                %% Set interval
+                Time = interval(Interval, erlang:round(Interval * 1.2)),
+                timer:apply_after(Time, ?MODULE, run, [Id]),
                 {?ST_RUNNING,  State};
             %% Reached end of the object-container
             not_found ->
@@ -292,7 +319,7 @@ running(#event_info{event = ?EVENT_INCR_WT},
                interval = Interval,
                batch_of_msgs = BatchOfMsgs} = State) ->
     {NextStatus, Interval_1} =
-        case (Interval >= MaxInterval andalso
+        case ((Interval + StepInterval) >= MaxInterval andalso
               BatchOfMsgs =< MinBatchProcs) of
             true ->
                 {?ST_SUSPENDING, MaxInterval};
@@ -442,16 +469,15 @@ after_execute(Ret, #state{id = Id} = State) ->
 consume(#state{mq_properties = #mq_properties{
                                   publisher_id = PublisherId,
                                   mod_callback = Mod,
-                                  mqdb_id = BackendMessage,
-                                  regular_batch_of_msgs = NumOfBatchProcs
-                                 }} = _State) ->
+                                  mqdb_id = BackendMessage},
+               batch_of_msgs = NumOfBatchProcs} = _State) ->
     consume(PublisherId, Mod, BackendMessage, NumOfBatchProcs).
 
 %% @doc Consume a message
 %% @private
 -spec(consume(atom(), atom(), atom(), non_neg_integer()) ->
              ok | not_found | {error, any()}).
-consume(_,_,_,0) ->
+consume(_Id,_,_,0) ->
     ok;
 consume(Id, Mod, BackendMessage, NumOfBatchProcs) ->
     try
