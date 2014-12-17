@@ -196,12 +196,9 @@ pub_sub() ->
     {ok, State_1} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
     ?assertEqual(?ST_SUSPENDING, State_1),
 
-    {ok, Consumers_1} = leo_mq_api:consumers(),
+    {ok, [Consumers_1|_]} = leo_mq_api:consumers(),
     ?debugVal(Consumers_1),
-    ?assertEqual(true, length([SuspendingProc
-                               || #mq_state{id = SuspendingProc,
-                                            state = ?ST_SUSPENDING}
-                                      <- Consumers_1]) > 0),
+    ?assertEqual(?ST_SUSPENDING, leo_misc:get_value(?MQ_CNS_PROP_STATUS, Consumers_1#mq_state.state)),
 
     %% resume the message consumption
     timer:sleep(timer:seconds(1)),
@@ -230,12 +227,9 @@ pub_sub() ->
 
     %% retrieve registered consumers
     timer:sleep(timer:seconds(3)),
-    {ok, Consumers_2} = leo_mq_api:consumers(),
+    {ok, [Consumers_2|_]} = leo_mq_api:consumers(),
     ?debugVal(Consumers_2),
-    ?assertEqual(true, length([IdlingProc
-                               || #mq_state{id = IdlingProc,
-                                            state = ?ST_IDLING}
-                                      <- Consumers_2]) > 0),
+    ?assertEqual(?ST_IDLING, leo_misc:get_value(?MQ_CNS_PROP_STATUS, Consumers_2#mq_state.state)),
     ok.
 
 

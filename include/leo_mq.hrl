@@ -109,8 +109,7 @@
 -record(mq_state, {
           id :: atom(),
           desc = [] :: string(),
-          state     :: state_of_mq(),
-          num_of_messages = 0 :: non_neg_integer()
+          state     :: [{atom(), any()}]
          }).
 
 

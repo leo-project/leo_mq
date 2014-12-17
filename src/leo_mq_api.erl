@@ -160,11 +160,10 @@ consumers() ->
         [] ->
             {ok, []};
         Children ->
-            {ok, [ #mq_state{
-                      id = ?publisher_id(Worker),
-                      state = element(2,leo_mq_consumer:state(Worker)),
-                      num_of_messages = element(2,status(?publisher_id(Worker)))}
-                   || {Worker,_,worker,[leo_mq_consumer]} <- Children]}
+            {ok, [ #mq_state{id    = ?publisher_id(Worker),
+                             state = element(2, leo_mq_publisher:status(?publisher_id(Worker)))
+                            } || {Worker,_,worker,[leo_mq_consumer]} <- Children
+                 ]}
     end.
 
 
