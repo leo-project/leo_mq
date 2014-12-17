@@ -66,8 +66,8 @@
 -define(DEF_CONSUME_STEP_BATCH_MSGS,  100).
 -endif.
 
--define(MQ_CNS_PROP_NUM_OF_MSGS, 'consumer_num_of_msgs').
--define(MQ_CNS_PROP_STATUS, 'consumer_status').
+-define(MQ_CNS_PROP_NUM_OF_MSGS,   'consumer_num_of_msgs').
+-define(MQ_CNS_PROP_STATUS,        'consumer_status').
 -define(MQ_CNS_PROP_BATCH_OF_MSGS, 'consumer_batch_of_msgs').
 -define(MQ_CNS_PROP_INTERVAL,      'consumer_interval').
 
