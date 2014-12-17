@@ -31,25 +31,65 @@
 -define(MQ_PROP_DB_PROCS,          'db_procs').
 -define(MQ_PROP_ROOT_PATH,         'root_path').
 -define(MQ_PROP_NUM_OF_BATCH_PROC, 'num_of_batch_processes').
--define(MQ_PROP_MAX_INTERVAL,      'max_interval').
--define(MQ_PROP_MIN_INTERVAL,      'min_interval').
 -define(MQ_SUBSCRIBE_FUN,          'subscribe').
 
+-define(MQ_PROP_INTERVAL_MAX,    'interval_max').
+-define(MQ_PROP_INTERVAL_MIN,    'interval_min').
+-define(MQ_PROP_INTERVAL_REG,    'interval_reg').
+-define(MQ_PROP_INTERVAL_STEP,   'interval_step').
+-define(MQ_PROP_BATCH_MSGS_MAX,  'batch_of_msgs_max').
+-define(MQ_PROP_BATCH_MSGS_MIN,  'batch_of_msgs_min').
+-define(MQ_PROP_BATCH_MSGS_REG,  'batch_of_msgs_reg').
+-define(MQ_PROP_BATCH_MSGS_STEP, 'batch_of_msgs_step').
+
+-define(DEF_BACKEND_DB_PROCS, 3).
+-define(DEF_BACKEND_DB,  'bitcask').
+-define(DEF_DB_ROOT_PATH, "mq"  ).
+
+-ifdef(TEST).
+-define(DEF_CONSUME_MAX_INTERVAL,    1000).
+-define(DEF_CONSUME_MIN_INTERVAL,     100).
+-define(DEF_CONSUME_REG_INTERVAL,     300).
+-define(DEF_CONSUME_STEP_INTERVAL,    100).
+-define(DEF_CONSUME_MAX_BATCH_MSGS,    10).
+-define(DEF_CONSUME_MIN_BATCH_MSGS,     1).
+-define(DEF_CONSUME_REG_BATCH_MSGS,     5).
+-define(DEF_CONSUME_STEP_BATCH_MSGS,    1).
+-else.
+-define(DEF_CONSUME_MAX_INTERVAL,    3000).
+-define(DEF_CONSUME_MIN_INTERVAL,     100).
+-define(DEF_CONSUME_REG_INTERVAL,     300).
+-define(DEF_CONSUME_STEP_INTERVAL,    100).
+-define(DEF_CONSUME_MAX_BATCH_MSGS,  1000).
+-define(DEF_CONSUME_MIN_BATCH_MSGS,   100).
+-define(DEF_CONSUME_REG_BATCH_MSGS,   300).
+-define(DEF_CONSUME_STEP_BATCH_MSGS,  100).
+-endif.
+
+-define(MQ_CNS_PROP_NUM_OF_MSGS,   'consumer_num_of_msgs').
+-define(MQ_CNS_PROP_STATUS,        'consumer_status').
+-define(MQ_CNS_PROP_BATCH_OF_MSGS, 'consumer_batch_of_msgs').
+-define(MQ_CNS_PROP_INTERVAL,      'consumer_interval').
 
 -record(mq_properties, {
-          publisher_id :: atom(),
-          consumer_id  :: atom(),
-          mod_callback :: module(),
-
-          db_name           :: atom(),
-          db_procs = 1      :: integer(),
-          root_path = []    :: string(),
-          mqdb_id           :: atom(),
-          mqdb_path = []    :: string(),
-
-          max_interval = 1  :: integer(),
-          min_interval = 1  :: integer(),
-          num_of_batch_processes = 1 :: pos_integer()
+          publisher_id :: atom(),         %% publisher-id
+          consumer_id  :: atom(),         %% consumer-id
+          mod_callback :: module(),       %% callback module name
+          db_name           :: atom(),    %% db's id
+          db_procs = 1      :: integer(), %% db's processes
+          root_path = []    :: string(),  %% db's path
+          mqdb_id           :: atom(),    %% mqdb's id
+          mqdb_path = []    :: string(),  %% mqdb's path
+          %% interval between batch-procs
+          max_interval = 1000    :: pos_integer(), %% max waiting time (default: 1000msec (1sec))
+          min_interval = 10      :: pos_integer(), %% min waiting time (default: 10msec)
+          regular_interval = 300 :: pos_integer(), %% regular waiting time (default: 300msec)
+          step_interval = 100    :: pos_integer(), %% step waiting time (default: 100msec)
+          %% num of batch procs
+          max_batch_of_msgs = 1000    :: pos_integer(), %% max num of batch of messages
+          min_batch_of_msgs = 100     :: pos_integer(), %% min num of batch of messages
+          regular_batch_of_msgs = 300 :: pos_integer(), %% regular num of batch of messages
+          step_batch_of_msgs = 100    :: pos_integer()  %% step num of batch of messages
          }).
 
 -record(mq_log, {
@@ -69,8 +109,7 @@
 -record(mq_state, {
           id :: atom(),
           desc = [] :: string(),
-          state     :: state_of_mq(),
-          num_of_messages = 0 :: non_neg_integer()
+          state     :: [{atom(), any()}]
          }).
 
 
@@ -81,18 +120,27 @@
 -define(EVENT_RESUME,   'resume').
 -define(EVENT_FINISH,   'finish').
 -define(EVENT_STATE,    'state').
+-define(EVENT_INCR_WT,  'incr_interval').
+-define(EVENT_DECR_WT,  'decr_interval').
+-define(EVENT_INCR_BP,  'incr_batch_of_msgs').
+-define(EVENT_DECR_BP,  'decr_batch_of_msgs').
 -type(event_of_compaction() ::?EVENT_RUN      |
                               ?EVENT_DIAGNOSE |
                               ?EVENT_LOCK     |
                               ?EVENT_SUSPEND  |
                               ?EVENT_RESUME   |
                               ?EVENT_FINISH   |
-                              ?EVENT_STATE).
+                              ?EVENT_STATE    |
+                              ?EVENT_INCR_WT  |
+                              ?EVENT_DECR_WT  |
+                              ?EVENT_INCR_BP  |
+                              ?EVENT_DECR_BP
+                              ).
 
 
 -define(DEF_CHECK_MAX_INTERVAL_1, timer:seconds(1)).
 -define(DEF_CHECK_MIN_INTERVAL_1, timer:seconds(0)).
--define(DEF_CHECK_MAX_INTERVAL_2, timer:seconds(30)).
+-define(DEF_CHECK_MAX_INTERVAL_2, timer:seconds(100)).
 -define(DEF_CHECK_MIN_INTERVAL_2, timer:seconds(10)).
 
 -define(DEF_CONSUMER_SUFFIX, "_consumer").

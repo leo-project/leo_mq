@@ -34,20 +34,13 @@
 -export([new/2, new/3,
          publish/3, suspend/1, resume/1,
          status/1,
-         consumers/0
+         consumers/0,
+         incr_interval/1, decr_interval/1,
+         incr_batch_of_msgs/1, decr_batch_of_msgs/1
         ]).
 
 -define(APP_NAME,      'leo_mq').
 -define(DEF_DB_MODULE, 'leo_mq_eleveldb'). % Not used in anywhere.
-
--define(DEF_BACKEND_DB_PROCS, 3).
--define(DEF_BACKEND_DB,  'bitcask').
--define(DEF_DB_ROOT_PATH, "mq"  ).
-
--define(DEF_CONSUME_MAX_INTERVAL, 3000).
--define(DEF_CONSUME_MIN_INTERVAL, 1000).
--define(DEF_CONSUME_NUM_OF_BATCH_PROC, 1).
-
 
 %%--------------------------------------------------------------------
 %% API
@@ -97,9 +90,16 @@ prop_list_to_mq_properties(Id, Mod, Props) ->
                  db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Props, ?DEF_BACKEND_DB),
                  db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props, ?DEF_BACKEND_DB_PROCS),
                  root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Props, ?DEF_DB_ROOT_PATH),
-                 num_of_batch_processes = leo_misc:get_value(?MQ_PROP_NUM_OF_BATCH_PROC, Props, ?DEF_CONSUME_NUM_OF_BATCH_PROC),
-                 max_interval = leo_misc:get_value(?MQ_PROP_MAX_INTERVAL, Props, ?DEF_CONSUME_MAX_INTERVAL),
-                 min_interval = leo_misc:get_value(?MQ_PROP_MIN_INTERVAL, Props, ?DEF_CONSUME_MIN_INTERVAL)
+                 %% interval between batchs
+                 max_interval     = leo_misc:get_value(?MQ_PROP_INTERVAL_MAX,  Props, ?DEF_CONSUME_MAX_INTERVAL),
+                 min_interval     = leo_misc:get_value(?MQ_PROP_INTERVAL_MIN,  Props, ?DEF_CONSUME_MIN_INTERVAL),
+                 regular_interval = leo_misc:get_value(?MQ_PROP_INTERVAL_REG,  Props, ?DEF_CONSUME_REG_INTERVAL),
+                 step_interval    = leo_misc:get_value(?MQ_PROP_INTERVAL_STEP, Props, ?DEF_CONSUME_STEP_INTERVAL),
+                 %% batch of messages
+                 max_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MAX,  Props, ?DEF_CONSUME_MAX_BATCH_MSGS),
+                 min_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MIN,  Props, ?DEF_CONSUME_MIN_BATCH_MSGS),
+                 regular_batch_of_msgs = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_REG,  Props, ?DEF_CONSUME_REG_BATCH_MSGS),
+                 step_batch_of_msgs    = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_STEP, Props, ?DEF_CONSUME_STEP_BATCH_MSGS)
                 },
     {MQDBMessageId,
      MQDBMessagePath} = ?backend_db_info(Id,
@@ -142,7 +142,7 @@ resume(Id) ->
 %% @doc Retrieve a current state from the queue
 %%
 -spec(status(Id) ->
-             {ok, list()} when Id::atom()).
+             {ok, [{atom(), any()}]} when Id::atom()).
 status(Id) ->
     leo_mq_publisher:status(Id).
 
@@ -160,12 +160,48 @@ consumers() ->
         [] ->
             {ok, []};
         Children ->
-            {ok, [ #mq_state{
-                      id = ?publisher_id(Worker),
-                      state = element(2,leo_mq_consumer:state(Worker)),
-                      num_of_messages = element(2,status(?publisher_id(Worker)))}
-                   || {Worker,_,worker,[leo_mq_consumer]} <- Children]}
+            {ok, [ #mq_state{id    = ?publisher_id(Worker),
+                             state = element(2, leo_mq_publisher:status(?publisher_id(Worker)))
+                            } || {Worker,_,worker,[leo_mq_consumer]} <- Children
+                 ]}
     end.
+
+
+%% @doc Increase waiting time
+%%
+-spec(incr_interval(Id) ->
+             ok | {error, any()} when Id::atom()).
+incr_interval(Id) ->
+    Id_1 = ?consumer_id(Id),
+    leo_mq_consumer:incr_interval(Id_1).
+
+
+%% @doc Decrease waiting time
+%%
+-spec(decr_interval(Id) ->
+             ok | {error, any()} when Id::atom()).
+decr_interval(Id) ->
+    Id_1 = ?consumer_id(Id),
+    leo_mq_consumer:decr_interval(Id_1).
+
+
+%% @doc Increase waiting time
+%%
+-spec(incr_batch_of_msgs(Id) ->
+             ok | {error, any()} when Id::atom()).
+incr_batch_of_msgs(Id) ->
+    Id_1 = ?consumer_id(Id),
+    leo_mq_consumer:incr_batch_of_msgs(Id_1).
+
+
+%% @doc Decrease waiting time
+%%
+-spec(decr_batch_of_msgs(Id) ->
+             ok | {error, any()} when Id::atom()).
+decr_batch_of_msgs(Id) ->
+    Id_1 = ?consumer_id(Id),
+    leo_mq_consumer:decr_batch_of_msgs(Id_1).
+
 
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS

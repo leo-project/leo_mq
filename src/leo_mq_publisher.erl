@@ -43,7 +43,7 @@
          terminate/2,
          code_change/3]).
 
--export([publish/3, status/1, close/1]).
+-export([publish/3, status/1, update_consumer_stats/4, close/1]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -57,8 +57,12 @@
 
 -record(state, {id               :: atom(),
                 mq_properties = #mq_properties{} :: #mq_properties{},
-                count = 0 :: non_neg_integer()
+                count = 0 :: non_neg_integer(),
+                consumer_status = ?ST_IDLING :: state_of_mq(),
+                consumer_batch_of_msgs = 0   :: non_neg_integer(),
+                consumer_interval = 0        :: non_neg_integer()
                }).
+
 
 %%--------------------------------------------------------------------
 %% API
@@ -93,9 +97,20 @@ publish(Id, KeyBin, MessageBin) ->
 %% @doc Retrieve the current state from the queue.
 %%
 -spec(status(Id) ->
-             {ok, list()} when Id::atom()).
+             {ok, [{atom(), any()}]} when Id::atom()).
 status(Id) ->
     gen_server:call(Id, status, ?DEF_TIMEOUT).
+
+
+%% @doc Retrieve the current state from the queue.
+%%
+-spec(update_consumer_stats(Id, CnsStatus, CnsBatchOfMsgs, CnsIntervalBetweenBatchProcs) ->
+             ok when Id::atom(),
+                     CnsStatus::state_of_mq(),
+                     CnsBatchOfMsgs::non_neg_integer(),
+                     CnsIntervalBetweenBatchProcs::non_neg_integer()).
+update_consumer_stats(Id, CnsStatus, CnsBatchOfMsgs, CnsIntervalBetweenBatchProcs) ->
+    gen_server:cast(Id, {update_consumer_stats, CnsStatus, CnsBatchOfMsgs, CnsIntervalBetweenBatchProcs}).
 
 
 %% @doc get state from the queue.
@@ -131,7 +146,10 @@ init([Id, #mq_properties{db_name   = DBName,
 
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
-handle_call(status, _From, #state{mq_properties = MQProps} = State) ->
+handle_call(status, _From, #state{mq_properties = MQProps,
+                                  consumer_status = ConsumerStatus,
+                                  consumer_batch_of_msgs = BatchOfMsgs,
+                                  consumer_interval = Interval} = State) ->
     MQDBMessageId = MQProps#mq_properties.mqdb_id,
     Res = leo_backend_db_api:status(MQDBMessageId),
     Count = lists:foldl(fun([{key_count, KC}, _], Acc) ->
@@ -139,7 +157,11 @@ handle_call(status, _From, #state{mq_properties = MQProps} = State) ->
                            (_, Acc) ->
                                 Acc
                         end, 0, Res),
-    {reply, {ok, Count}, State};
+    {reply, {ok, [{?MQ_CNS_PROP_NUM_OF_MSGS, Count},
+                  {?MQ_CNS_PROP_STATUS, ConsumerStatus},
+                  {?MQ_CNS_PROP_BATCH_OF_MSGS, BatchOfMsgs},
+                  {?MQ_CNS_PROP_INTERVAL, Interval}
+                 ]}, State};
 
 handle_call(close, _From, #state{mq_properties = MQProps} = State) ->
     MQDBMessageId = MQProps#mq_properties.mqdb_id,
@@ -158,6 +180,10 @@ handle_cast({publish, KeyBin, MessageBin}, State = #state{id = Id,
     catch erlang:apply(Mod, handle_call, [{publish, Id, Reply}]),
     {noreply, State};
 
+handle_cast({update_consumer_stats, CnsStatus, CnsBatchOfMsgs, CnsIntervalBetweenBatchProcs}, State) ->
+    {noreply, State#state{consumer_status = CnsStatus,
+                          consumer_batch_of_msgs = CnsBatchOfMsgs,
+                          consumer_interval = CnsIntervalBetweenBatchProcs}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
