@@ -130,7 +130,9 @@ publish_(Path) ->
     timer:sleep(1000),
     ok = check_state(),
 
-    {ok, Count} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    {ok, Stats} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?debugVal(Stats),
+    Count = leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats),
     ?assertEqual(0, Count),
     ok.
 
@@ -181,8 +183,9 @@ pub_sub() ->
 
     %% publish messages
     ok = publish_messages(100),
-    {ok, TotalMsgs_1} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
-    ?debugVal(TotalMsgs_1),
+    {ok, Stats} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?debugVal(Stats),
+    TotalMsgs_1 = leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats),
     ?assertEqual(true, TotalMsgs_1 > 0),
 
     %% suspend the message consumption
@@ -210,7 +213,6 @@ pub_sub() ->
     [ok = leo_mq_api:decr_batch_of_msgs(?QUEUE_ID_PUBLISHER) || _N <- lists:seq(1, 12)],
     timer:sleep(timer:seconds(5)),
     {ok, State_2} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
-    ?debugVal(State_2),
     ?assertEqual(?ST_SUSPENDING, State_2),
     [ok = leo_mq_api:decr_interval(?QUEUE_ID_PUBLISHER) || _N <- lists:seq(1, 5)],
 
@@ -221,7 +223,9 @@ pub_sub() ->
     ?debugVal(State_3),
     ?assertEqual(?ST_IDLING, State_3),
 
-    {ok, TotalMsgs_2} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    {ok, Stats_1} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?debugVal(Stats_1),
+    TotalMsgs_2 = leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats_1),
     ?assertEqual(0, TotalMsgs_2),
 
     %% retrieve registered consumers

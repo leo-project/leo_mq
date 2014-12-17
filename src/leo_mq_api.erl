@@ -142,7 +142,7 @@ resume(Id) ->
 %% @doc Retrieve a current state from the queue
 %%
 -spec(status(Id) ->
-             {ok, list()} when Id::atom()).
+             {ok, [{atom(), any()}]} when Id::atom()).
 status(Id) ->
     leo_mq_publisher:status(Id).
 

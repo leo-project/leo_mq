@@ -222,12 +222,16 @@ format_status(_Opt, [_PDict, State]) ->
              {next_state, ?ST_IDLING | ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                                 From::{pid(),Tag::atom()},
                                                                 State::#state{}).
-idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id} = State) ->
+idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id,
+                                                     publisher_id = PublisherId,
+                                                     batch_of_msgs = BatchOfMsgs,
+                                                     interval = Interval} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{status = NextStatus,
                           start_datetime = leo_date:now()},
     gen_fsm:reply(From, ok),
     ok = run(Id),
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State_1};
 idling(#event_info{event = ?EVENT_STATE}, From, State) ->
     NextStatus = ?ST_IDLING,
@@ -241,9 +245,13 @@ idling(_, From, State) ->
 -spec(idling(EventInfo, State) ->
              {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
                                                   State::#state{}).
-idling(#event_info{event = ?EVENT_RUN}, #state{id = Id} = State) ->
+idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
+                                               publisher_id = PublisherId,
+                                               batch_of_msgs = BatchOfMsgs,
+                                               interval = Interval} = State) ->
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 idling(#event_info{event = ?EVENT_INCR_WT},
@@ -282,6 +290,8 @@ idling(_, State) ->
              {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                    State::#state{}).
 running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
+                                                publisher_id = PublisherId,
+                                                batch_of_msgs = BatchOfMsgs,
                                                 interval = Interval} = State) ->
     %% Consume messages in the queue
     {NextStatus, State_2} =
@@ -305,14 +315,19 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING,  State_1}
         end,
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State_2#state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_SUSPEND}, State) ->
+running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
+                                                    batch_of_msgs = BatchOfMsgs,
+                                                    interval = Interval} = State) ->
     NextStatus = ?ST_SUSPENDING,
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 running(#event_info{event = ?EVENT_INCR_WT},
         #state{id = Id,
+               publisher_id = PublisherId,
                mq_properties = #mq_properties{max_interval  = MaxInterval,
                                               step_interval = StepInterval,
                                               min_batch_of_msgs = MinBatchProcs},
@@ -328,35 +343,42 @@ running(#event_info{event = ?EVENT_INCR_WT},
                 {?ST_RUNNING,
                  incr_interval_fun(Interval, MaxInterval, StepInterval)}
         end,
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          interval = Interval_1}};
 
 running(#event_info{event = ?EVENT_DECR_WT},
         #state{id = Id,
+               publisher_id = PublisherId,
                mq_properties = #mq_properties{min_interval = MinInterval,
                                               step_interval = StepInterval},
+               batch_of_msgs = BatchOfMsgs,
                interval = Interval} = State) ->
-    Interval_1 =
-        decr_interval_fun(Interval, MinInterval, StepInterval),
-    ok = run(Id),
+    Interval_1 = decr_interval_fun(Interval, MinInterval, StepInterval),
     NextStatus = ?ST_RUNNING,
+    ok = run(Id),
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          interval = Interval_1}};
 
 running(#event_info{event = ?EVENT_INCR_BP},
         #state{id = Id,
+               publisher_id = PublisherId,
                mq_properties = #mq_properties{max_batch_of_msgs  = MaxBatchOfMsgs,
                                               step_batch_of_msgs = StepBatchOfMsgs},
-               batch_of_msgs = BatchOfMsgs} = State) ->
+               batch_of_msgs = BatchOfMsgs,
+               interval = Interval} = State) ->
     BatchOfMsgs_1 =
         incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
-    ok = run(Id),
     NextStatus = ?ST_RUNNING,
+    ok = run(Id),
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs_1, Interval),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
                                          status = NextStatus}};
 
 running(#event_info{event = ?EVENT_DECR_BP},
         #state{id = Id,
+               publisher_id = PublisherId,
                mq_properties = #mq_properties{min_batch_of_msgs  = MinBatchOfMsgs,
                                               step_batch_of_msgs = StepBatchOfMsgs,
                                               max_interval       = MaxInterval},
@@ -372,6 +394,7 @@ running(#event_info{event = ?EVENT_DECR_BP},
                 {?ST_RUNNING,
                  decr_batch_procs_fun(BatchOfMsgs, MinBatchOfMsgs, StepBatchOfMsgs)}
         end,
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs_1, Interval),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
                                          status = NextStatus}};
 
@@ -406,25 +429,29 @@ suspending(#event_info{event = ?EVENT_STATE}, State) ->
 
 suspending(#event_info{event = ?EVENT_DECR_WT},
            #state{id = Id,
+                  publisher_id = PublisherId,
                   mq_properties = #mq_properties{min_interval  = MinInterval,
                                                  step_interval = StepInterval},
+                  batch_of_msgs = BatchOfMsgs,
                   interval = Interval} = State) ->
     Interval_1 = decr_interval_fun(Interval, MinInterval, StepInterval),
+    timer:apply_after(timer:seconds(1), ?MODULE, run, [Id]),
+
     NextStatus = ?ST_RUNNING,
-    timer:apply_after(
-      timer:seconds(1), ?MODULE, run, [Id]),
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          interval = Interval_1}};
 suspending(#event_info{event = ?EVENT_INCR_BP},
            #state{id = Id,
+                  publisher_id = PublisherId,
                   mq_properties = #mq_properties{max_batch_of_msgs  = MaxBatchOfMsgs,
                                                  step_batch_of_msgs = StepBatchOfMsgs},
-                  batch_of_msgs = BatchOfMsgs} = State) ->
-    BatchOfMsgs_1 =
-        incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
+                  batch_of_msgs = BatchOfMsgs,
+                  interval = Interval} = State) ->
+    BatchOfMsgs_1 = incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
     NextStatus = ?ST_RUNNING,
-    timer:apply_after(
-      timer:seconds(1), ?MODULE, run, [Id]),
+    timer:apply_after(timer:seconds(1), ?MODULE, run, [Id]),
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs_1, Interval),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1}};
 suspending(_, State) ->
@@ -435,11 +462,14 @@ suspending(_, State) ->
              {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                                     From::{pid(),Tag::atom()},
                                                                     State::#state{}).
-suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id} = State) ->
+suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
+                                                            publisher_id = PublisherId,
+                                                            batch_of_msgs = BatchOfMsgs,
+                                                            interval = Interval} = State) ->
     gen_fsm:reply(From, ok),
-    ok = run(Id),
-
     NextStatus = ?ST_RUNNING,
+    ok = run(Id),
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = NextStatus}};
 suspending(#event_info{event = ?EVENT_STATE}, From, State) ->
     NextStatus = ?ST_SUSPENDING,
