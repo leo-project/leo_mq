@@ -91,7 +91,7 @@ stop(Id) ->
                                       KeyBin::binary(),
                                       MessageBin::binary()).
 publish(Id, KeyBin, MessageBin) ->
-    gen_server:cast(Id, {publish, KeyBin, MessageBin}).
+    gen_server:call(Id, {publish, KeyBin, MessageBin}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve the current state from the queue.
@@ -146,6 +146,10 @@ init([Id, #mq_properties{db_name   = DBName,
 
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
+handle_call({publish, KeyBin, MessageBin}, _From, State) ->
+    Reply = put_message(KeyBin, MessageBin, State),
+    {reply, Reply, State};
+
 handle_call(status, _From, #state{mq_properties = MQProps,
                                   consumer_status = ConsumerStatus,
                                   consumer_batch_of_msgs = BatchOfMsgs,
@@ -173,13 +177,6 @@ handle_call(stop, _From, State) ->
 
 
 %% @doc gen_server callback - Module:handle_cast(Request, State) -> Result
-handle_cast({publish, KeyBin, MessageBin}, State = #state{id = Id,
-                                                          mq_properties = MQProps}) ->
-    Mod = MQProps#mq_properties.mod_callback,
-    Reply = put_message(KeyBin, MessageBin, State),
-    catch erlang:apply(Mod, handle_call, [{publish, Id, Reply}]),
-    {noreply, State};
-
 handle_cast({update_consumer_stats, CnsStatus, CnsBatchOfMsgs, CnsIntervalBetweenBatchProcs}, State) ->
     {noreply, State#state{consumer_status = CnsStatus,
                           consumer_batch_of_msgs = CnsBatchOfMsgs,
