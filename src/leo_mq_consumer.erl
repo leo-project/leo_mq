@@ -58,7 +58,7 @@
         ]).
 
 -compile(nowarn_deprecated_type).
--define(DEF_TIMEOUT, timer:seconds(30)).
+-define(DEF_TIMEOUT, timer:seconds(10)).
 
 -record(event_info, {
           id :: atom(),
