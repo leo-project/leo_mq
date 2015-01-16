@@ -58,7 +58,7 @@
         ]).
 
 -compile(nowarn_deprecated_type).
--define(DEF_TIMEOUT, timer:seconds(10)).
+-define(DEF_TIMEOUT, timer:seconds(60)).
 
 -record(event_info, {
           id :: atom(),
@@ -186,7 +186,6 @@ handle_sync_event(state, _From, StateName, State) ->
 %% @doc Handle 'stop' event
 handle_sync_event(stop, _From, _StateName, State) ->
     {stop, shutdown, ok, State}.
-
 
 %% @doc Handling all non call/cast messages
 handle_info(_Info, StateName, State) ->
