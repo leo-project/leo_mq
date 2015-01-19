@@ -149,23 +149,25 @@ pub_sub_test_() ->
     {setup,
      fun ( ) ->
              ?debugVal("### MQ.START ###"),
-             application:start(leo_mq),
-             Path = queue_db_path(),
-             os:cmd("rm -rf " ++ Path),
              ok
      end,
      fun (_) ->
-             meck:unload(),
-             application:stop(leo_mq),
              ?debugVal("### MQ.END ###"),
              ok
      end,
      [
-      {"test pub/sub",
-       {timeout, timer:seconds(120),fun pub_sub/0}}
+      {"test pub/sub-1",
+       {timeout, timer:seconds(120),fun pub_sub_1/0}},
+      {"test pub/sub-2",
+       {timeout, timer:seconds(120),fun pub_sub_2/0}}
      ]}.
 
-pub_sub() ->
+pub_sub_1() ->
+    %% prepare
+    application:start(leo_mq),
+    Path = queue_db_path(),
+    os:cmd("rm -rf " ++ Path),
+
     meck:new(?TEST_CLIENT_MOD, [non_strict]),
     meck:expect(?TEST_CLIENT_MOD, handle_call,
                 fun({consume,_Id,_MsgBin}) ->
@@ -174,11 +176,11 @@ pub_sub() ->
                         ok
                 end),
     Path = queue_db_path(),
-    Ret  =  leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
-                                                 {root_path, Path},
-                                                 {regularx_batch_of_msgs, 10},
-                                                 {max_interval, 1000},
-                                                 {min_interval, 100}]),
+    Ret  = leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
+                                                {root_path, Path},
+                                                {regularx_batch_of_msgs, 10},
+                                                {max_interval, 1000},
+                                                {min_interval, 100}]),
     ?assertEqual(ok, Ret),
 
     %% publish messages
@@ -230,6 +232,47 @@ pub_sub() ->
     {ok, [Consumers_2|_]} = leo_mq_api:consumers(),
     ?debugVal(Consumers_2),
     ?assertEqual(?ST_IDLING, leo_misc:get_value(?MQ_CNS_PROP_STATUS, Consumers_2#mq_state.state)),
+
+    %% execute after processing
+    meck:unload(),
+    application:stop(leo_mq),
+    ok.
+
+pub_sub_2() ->
+    ?debugVal("*** TEST - pub/sub#2 ***"),
+    %% prepare
+    application:start(leo_mq),
+    Path = queue_db_path(),
+    os:cmd("rm -rf " ++ Path),
+
+    meck:new(?TEST_CLIENT_MOD, [non_strict]),
+    meck:expect(?TEST_CLIENT_MOD, handle_call,
+                fun({consume,_Id,_MsgBin}) ->
+                        ?debugVal(_Id),
+                        timer:sleep(timer:seconds(30)),
+                        ok;
+                   ({publish,_Id,_Reply}) ->
+                        ok
+                end),
+    Path = queue_db_path(),
+    Ret  = leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
+                                                {root_path, Path},
+                                                {regularx_batch_of_msgs, 10},
+                                                {max_interval, 1000},
+                                                {min_interval, 100}]),
+    ?assertEqual(ok, Ret),
+
+    %% publish messages
+    ok = publish_messages(1),
+
+    timer:sleep(timer:seconds(30)),
+    ok = check_state(),
+    {ok, Stats} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?debugVal(Stats),
+
+    %% execute after processing
+    meck:unload(),
+    application:stop(leo_mq),
     ok.
 
 
