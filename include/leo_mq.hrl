@@ -140,7 +140,7 @@
 
 -define(DEF_CHECK_MAX_INTERVAL_1, timer:seconds(1)).
 -define(DEF_CHECK_MIN_INTERVAL_1, timer:seconds(0)).
--define(DEF_CHECK_MAX_INTERVAL_2, timer:seconds(100)).
+-define(DEF_CHECK_MAX_INTERVAL_2, timer:seconds(20)).
 -define(DEF_CHECK_MIN_INTERVAL_2, timer:seconds(10)).
 
 -define(DEF_CONSUMER_SUFFIX, "_consumer").
