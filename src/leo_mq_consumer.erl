@@ -527,7 +527,7 @@ consume(Id, Mod, BackendMessage, NumOfBatchProcs) ->
                 _:Reason ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
-                                            {function, "consume_fun/5"},
+                                            {function, "consume_fun/4"},
                                             {line, ?LINE}, {body, Reason}])
             after
                 %% Remove the message
