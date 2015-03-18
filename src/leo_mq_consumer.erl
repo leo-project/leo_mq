@@ -522,17 +522,26 @@ consume(Id, Mod, BackendMessage, NumOfBatchProcs) ->
                              _ ->
                                  Val
                          end,
-                erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}])
+                erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
+                ok
             catch
                 _:Reason ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
-                                            {function, "consume_fun/4"},
+                                            {function, "consume/4"},
                                             {line, ?LINE}, {body, Reason}])
             after
                 %% Remove the message
                 %% and then retrieve the next message
-                ok = leo_backend_db_api:delete(BackendMessage, Key),
+                case catch leo_backend_db_api:delete(BackendMessage, Key) of
+                    ok ->
+                        ok;
+                    {_, Why} ->
+                        error_logger:error_msg("~p,~p,~p,~p~n",
+                                               [{module, ?MODULE_STRING},
+                                                {function, "consume/4"},
+                                                {line, ?LINE}, {body, Why}])
+                end,
                 consume(Id, Mod, BackendMessage, NumOfBatchProcs - 1)
             end;
         not_found = Cause ->
