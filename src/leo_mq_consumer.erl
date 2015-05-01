@@ -511,38 +511,32 @@ consume(_Id,_,_,0) ->
 consume(Id, Mod, BackendMessage, NumOfBatchProcs) ->
     case catch leo_backend_db_api:first(BackendMessage) of
         {ok, {Key, Val}} ->
-            try
-                %% Taking measure of queue-msg migration
-                %% for previsous 1.2.0-pre1
-                MsgTerm = binary_to_term(Val),
-                MsgBin = case is_tuple(MsgTerm) of
-                             true when is_integer(element(1, MsgTerm)) andalso
-                                       is_binary(element(2, MsgTerm)) ->
-                                 element(2, MsgTerm);
-                             _ ->
-                                 Val
-                         end,
-                erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
-                ok
-            catch
-                _:Reason ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "consume/4"},
-                                            {line, ?LINE}, {body, Reason}])
-            after
-                %% Remove the message
-                %% and then retrieve the next message
-                case catch leo_backend_db_api:delete(BackendMessage, Key) of
-                    ok ->
-                        ok;
-                    {_, Why} ->
-                        error_logger:error_msg("~p,~p,~p,~p~n",
-                                               [{module, ?MODULE_STRING},
-                                                {function, "consume/4"},
-                                                {line, ?LINE}, {body, Why}])
-                end,
-                consume(Id, Mod, BackendMessage, NumOfBatchProcs - 1)
+            case catch leo_backend_db_api:dequeue(BackendMessage, Key) of
+                {ok, _} ->
+                    try
+                        %% Taking measure of queue-msg migration
+                        %% for previsous 1.2.0-pre1
+                        MsgTerm = binary_to_term(Val),
+                        MsgBin = case is_tuple(MsgTerm) of
+                                     true when is_integer(element(1, MsgTerm)) andalso
+                                               is_binary(element(2, MsgTerm)) ->
+                                         element(2, MsgTerm);
+                                     _ ->
+                                         Val
+                                 end,
+                        erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
+                        ok
+                    catch
+                        _:Reason ->
+                            error_logger:error_msg("~p,~p,~p,~p~n",
+                                                   [{module, ?MODULE_STRING},
+                                                    {function, "consume/4"},
+                                                    {line, ?LINE}, {body, Reason}])
+                    after
+                        consume(Id, Mod, BackendMessage, NumOfBatchProcs - 1)
+                    end;
+                _ ->
+                    consume(Id, Mod, BackendMessage, NumOfBatchProcs - 1)
             end;
         not_found = Cause ->
             Cause;
