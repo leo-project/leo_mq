@@ -126,8 +126,13 @@ publish(Id, KeyBin, MessageBin) ->
 -spec(suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 suspend(Id) ->
-    Id_1 = ?consumer_id(Id, 1),
-    leo_mq_consumer:suspend(Id_1).
+    suspend(Id, 8).
+suspend(_Id, 0) ->
+    ok;
+suspend(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:suspend(Id_1),
+    suspend(Id, Seq - 1).
 
 
 %% @doc Resume consumption of messages in the queue
@@ -135,8 +140,13 @@ suspend(Id) ->
 -spec(resume(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
-    Id_1 = ?consumer_id(Id, 1),
-    leo_mq_consumer:resume(Id_1).
+    resume(Id, 8).
+resume(_Id, 0) ->
+    ok;
+resume(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:resume(Id_1),
+    resume(Id, Seq - 1).
 
 
 %% @doc Retrieve a current state from the queue
@@ -172,8 +182,13 @@ consumers() ->
 -spec(incr_interval(Id) ->
              ok | {error, any()} when Id::atom()).
 incr_interval(Id) ->
-    Id_1 = ?consumer_id(Id, 1),
-    leo_mq_consumer:incr_interval(Id_1).
+    incr_interval(Id, 8).
+incr_interval(_Id, 0) ->
+    ok;
+incr_interval(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:incr_interval(Id_1),
+    incr_interval(Id, Seq - 1).
 
 
 %% @doc Decrease waiting time
@@ -181,8 +196,13 @@ incr_interval(Id) ->
 -spec(decr_interval(Id) ->
              ok | {error, any()} when Id::atom()).
 decr_interval(Id) ->
-    Id_1 = ?consumer_id(Id, 1),
-    leo_mq_consumer:decr_interval(Id_1).
+    decr_interval(Id, 8).
+decr_interval(_Id, 0) ->
+    ok;
+decr_interval(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:decr_interval(Id_1),
+    decr_interval(Id, Seq - 1).
 
 
 %% @doc Increase waiting time
@@ -190,8 +210,13 @@ decr_interval(Id) ->
 -spec(incr_batch_of_msgs(Id) ->
              ok | {error, any()} when Id::atom()).
 incr_batch_of_msgs(Id) ->
-    Id_1 = ?consumer_id(Id, 1),
-    leo_mq_consumer:incr_batch_of_msgs(Id_1).
+    incr_batch_of_msgs(Id, 8).
+incr_batch_of_msgs(_Id, 0) ->
+    ok;
+incr_batch_of_msgs(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:incr_batch_of_msgs(Id_1),
+    incr_batch_of_msgs(Id, Seq - 1).
 
 
 %% @doc Decrease waiting time
@@ -199,8 +224,14 @@ incr_batch_of_msgs(Id) ->
 -spec(decr_batch_of_msgs(Id) ->
              ok | {error, any()} when Id::atom()).
 decr_batch_of_msgs(Id) ->
-    Id_1 = ?consumer_id(Id, 1),
-    leo_mq_consumer:decr_batch_of_msgs(Id_1).
+    decr_batch_of_msgs(Id, 8).
+decr_batch_of_msgs(_Id, 0) ->
+    ok;
+decr_batch_of_msgs(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:decr_batch_of_msgs(Id_1),
+    decr_batch_of_msgs(Id, Seq - 1).
+
 
 
 %%--------------------------------------------------------------------
