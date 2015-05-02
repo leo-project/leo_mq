@@ -261,14 +261,15 @@ start_child_1(RefSup, #mq_properties{publisher_id = PublisherId} = Props) ->
 %% @private Start 'leo_mq_fsm_controller'
 start_child_2(_RefSup, #mq_properties{publisher_id = _PublisherId} = _Props, 0) ->
     ok;
-start_child_2(RefSup, #mq_properties{publisher_id = PublisherId} = Props, NumProcs) ->
-    ConsumerId = ?consumer_id(PublisherId, NumProcs),
+start_child_2(RefSup, #mq_properties{publisher_id = PublisherId} = Props, WorkerSeqNum) ->
+    ConsumerId = ?consumer_id(PublisherId, WorkerSeqNum),
     case supervisor:start_child(
            RefSup, {ConsumerId,
-                    {leo_mq_consumer, start_link, [ConsumerId, PublisherId, Props]},
+                    {leo_mq_consumer, start_link,
+                     [ConsumerId, PublisherId, Props, (WorkerSeqNum - 1)]},
                     permanent, 2000, worker, [leo_mq_consumer]}) of
         {ok, _Pid} ->
-            start_child_2(RefSup, Props, NumProcs - 1);
+            start_child_2(RefSup, Props, WorkerSeqNum - 1);
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
