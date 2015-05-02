@@ -31,7 +31,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(QUEUE_ID_PUBLISHER, 'replicate_miss_queue').
--define(QUEUE_ID_CONSUMER,  'replicate_miss_queue_consumer').
+-define(QUEUE_ID_CONSUMER,  'replicate_miss_queue_consumer1').
 
 -define(TEST_KEY_1, "air/on/g/string_1").
 -define(TEST_KEY_2, "air/on/g/string_2").
@@ -112,6 +112,7 @@ publish_(Path) ->
                 end),
     Ret =  leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
                                                      {root_path, Path},
+                                                     {db_procs, 8},
                                                      {num_of_batch_processes, 10},
                                                      {max_interval, 1000},
                                                      {min_interval, 100}]),
@@ -178,6 +179,7 @@ pub_sub_1() ->
     Path = queue_db_path(),
     Ret  = leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
                                                 {root_path, Path},
+                                                {db_procs, 8},
                                                 {regularx_batch_of_msgs, 10},
                                                 {max_interval, 1000},
                                                 {min_interval, 100}]),
@@ -257,6 +259,7 @@ pub_sub_2() ->
     Path = queue_db_path(),
     Ret  = leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
                                                 {root_path, Path},
+                                                {db_procs, 8},
                                                 {regularx_batch_of_msgs, 10},
                                                 {max_interval, 1000},
                                                 {min_interval, 100}]),

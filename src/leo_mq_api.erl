@@ -73,7 +73,7 @@ new(RefSup, Id, Props) ->
               end,
 
     ok = start_child_1(RefSup, Props_1),
-    ok = start_child_2(RefSup, Props_1),
+    ok = start_child_2(RefSup, Props_1, Props_1#mq_properties.db_procs),
     ok.
 
 
@@ -85,7 +85,7 @@ new(RefSup, Id, Props) ->
 prop_list_to_mq_properties(Id, Mod, Props) ->
     Props_1 = #mq_properties{
                  publisher_id = Id,
-                 consumer_id  = ?consumer_id(Id),
+                 consumer_id  = ?consumer_id(Id, 1),
                  mod_callback = leo_misc:get_value(?MQ_PROP_MOD,          Props, Mod),
                  db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Props, ?DEF_BACKEND_DB),
                  db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props, ?DEF_BACKEND_DB_PROCS),
@@ -126,8 +126,13 @@ publish(Id, KeyBin, MessageBin) ->
 -spec(suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 suspend(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:suspend(Id_1).
+    suspend(Id, 8).
+suspend(_Id, 0) ->
+    ok;
+suspend(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:suspend(Id_1),
+    suspend(Id, Seq - 1).
 
 
 %% @doc Resume consumption of messages in the queue
@@ -135,8 +140,13 @@ suspend(Id) ->
 -spec(resume(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:resume(Id_1).
+    resume(Id, 8).
+resume(_Id, 0) ->
+    ok;
+resume(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:resume(Id_1),
+    resume(Id, Seq - 1).
 
 
 %% @doc Retrieve a current state from the queue
@@ -172,8 +182,13 @@ consumers() ->
 -spec(incr_interval(Id) ->
              ok | {error, any()} when Id::atom()).
 incr_interval(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:incr_interval(Id_1).
+    incr_interval(Id, 8).
+incr_interval(_Id, 0) ->
+    ok;
+incr_interval(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:incr_interval(Id_1),
+    incr_interval(Id, Seq - 1).
 
 
 %% @doc Decrease waiting time
@@ -181,8 +196,13 @@ incr_interval(Id) ->
 -spec(decr_interval(Id) ->
              ok | {error, any()} when Id::atom()).
 decr_interval(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:decr_interval(Id_1).
+    decr_interval(Id, 8).
+decr_interval(_Id, 0) ->
+    ok;
+decr_interval(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:decr_interval(Id_1),
+    decr_interval(Id, Seq - 1).
 
 
 %% @doc Increase waiting time
@@ -190,8 +210,13 @@ decr_interval(Id) ->
 -spec(incr_batch_of_msgs(Id) ->
              ok | {error, any()} when Id::atom()).
 incr_batch_of_msgs(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:incr_batch_of_msgs(Id_1).
+    incr_batch_of_msgs(Id, 8).
+incr_batch_of_msgs(_Id, 0) ->
+    ok;
+incr_batch_of_msgs(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:incr_batch_of_msgs(Id_1),
+    incr_batch_of_msgs(Id, Seq - 1).
 
 
 %% @doc Decrease waiting time
@@ -199,8 +224,14 @@ incr_batch_of_msgs(Id) ->
 -spec(decr_batch_of_msgs(Id) ->
              ok | {error, any()} when Id::atom()).
 decr_batch_of_msgs(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:decr_batch_of_msgs(Id_1).
+    decr_batch_of_msgs(Id, 8).
+decr_batch_of_msgs(_Id, 0) ->
+    ok;
+decr_batch_of_msgs(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:decr_batch_of_msgs(Id_1),
+    decr_batch_of_msgs(Id, Seq - 1).
+
 
 
 %%--------------------------------------------------------------------
@@ -228,14 +259,17 @@ start_child_1(RefSup, #mq_properties{publisher_id = PublisherId} = Props) ->
     end.
 
 %% @private Start 'leo_mq_fsm_controller'
-start_child_2(RefSup, #mq_properties{publisher_id = PublisherId,
-                                     consumer_id  = ConsumerId} = Props) ->
+start_child_2(_RefSup, #mq_properties{publisher_id = _PublisherId} = _Props, 0) ->
+    ok;
+start_child_2(RefSup, #mq_properties{publisher_id = PublisherId} = Props, WorkerSeqNum) ->
+    ConsumerId = ?consumer_id(PublisherId, WorkerSeqNum),
     case supervisor:start_child(
            RefSup, {ConsumerId,
-                    {leo_mq_consumer, start_link, [ConsumerId, PublisherId, Props]},
+                    {leo_mq_consumer, start_link,
+                     [ConsumerId, PublisherId, Props, (WorkerSeqNum - 1)]},
                     permanent, 2000, worker, [leo_mq_consumer]}) of
         {ok, _Pid} ->
-            ok;
+            start_child_2(RefSup, Props, WorkerSeqNum - 1);
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},

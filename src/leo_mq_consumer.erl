@@ -33,7 +33,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/3, stop/1]).
+-export([start_link/4, stop/1]).
 -export([run/1,
          suspend/1,
          resume/1,
@@ -69,8 +69,10 @@
           id :: atom(),
           status = ?ST_IDLING :: state_of_mq(),
           publisher_id        :: atom(),
+          named_mqdb_pid      :: atom(),
           mq_properties = #mq_properties{} :: #mq_properties{},
-          interval = 0    :: non_neg_integer(),
+          worker_seq_num = 0  :: non_neg_integer(),
+          interval = 0        :: non_neg_integer(),
           batch_of_msgs = 0   :: non_neg_integer(),
           start_datetime = 0  :: non_neg_integer()
          }).
@@ -80,13 +82,15 @@
 %% API
 %%====================================================================
 %% @doc Creates a gen_fsm process as part of a supervision tree
--spec(start_link(Id, PublisherId, Props) ->
+-spec(start_link(Id, PublisherId, Props, WorkerSeqNum) ->
              {ok, pid()} | {error, any()} when Id::atom(),
                                                PublisherId::atom(),
-                                               Props::#mq_properties{}).
-start_link(Id, PublisherId, Props) ->
+                                               Props::#mq_properties{},
+                                               WorkerSeqNum::non_neg_integer()
+                                                             ).
+start_link(Id, PublisherId, Props, WorkerSeqNum) ->
     gen_fsm:start_link({local, Id}, ?MODULE,
-                       [Id, PublisherId, Props], []).
+                       [Id, PublisherId, Props, WorkerSeqNum], []).
 
 
 %% @doc Stop this server
@@ -165,13 +169,20 @@ decr_batch_of_msgs(Id) ->
 %%====================================================================
 %% @doc Initiates the server
 %%
-init([Id, PublisherId, #mq_properties{regular_interval = Interval,
-                                      regular_batch_of_msgs = BatchOfMsgs} = Props]) ->
+init([Id, PublisherId,
+      #mq_properties{mqdb_id = MqDbId,
+                     regular_interval = Interval,
+                     regular_batch_of_msgs = BatchOfMsgs} = Props, WorkerSeqNum]) ->
     _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_1, ?DEF_CHECK_MIN_INTERVAL_1),
+    NamedPid = list_to_atom(atom_to_list(MqDbId)
+                            ++ "_"
+                            ++ integer_to_list(WorkerSeqNum)),
     {ok, ?ST_IDLING, #state{id = Id,
-                            publisher_id  = PublisherId,
+                            publisher_id = PublisherId,
+                            named_mqdb_pid = NamedPid,
                             mq_properties = Props,
-                            interval      = Interval,
+                            worker_seq_num = WorkerSeqNum,
+                            interval = Interval,
                             batch_of_msgs = BatchOfMsgs
                            }}.
 
@@ -497,10 +508,10 @@ after_execute(Ret, #state{id = Id} = State) ->
              ok | not_found | {error, any()} when State::#state{}).
 consume(#state{mq_properties = #mq_properties{
                                   publisher_id = PublisherId,
-                                  mod_callback = Mod,
-                                  mqdb_id = BackendMessage},
-               batch_of_msgs = NumOfBatchProcs} = _State) ->
-    consume(PublisherId, Mod, BackendMessage, NumOfBatchProcs).
+                                  mod_callback = Mod},
+               named_mqdb_pid = NamedMqDbPid,
+               batch_of_msgs  = NumOfBatchProcs} = _State) ->
+    consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs).
 
 %% @doc Consume a message
 %% @private
@@ -508,9 +519,9 @@ consume(#state{mq_properties = #mq_properties{
              ok | not_found | {error, any()}).
 consume(_Id,_,_,0) ->
     ok;
-consume(Id, Mod, BackendMessage, NumOfBatchProcs) ->
-    case catch leo_backend_db_api:first(BackendMessage) of
-        {ok, {Key, Val}} ->
+consume(Id, Mod, NamedMqDbPid, NumOfBatchProcs) ->
+    case catch leo_backend_db_server:first(NamedMqDbPid) of
+        {ok, Key, Val} ->
             try
                 %% Taking measure of queue-msg migration
                 %% for previsous 1.2.0-pre1
@@ -533,7 +544,7 @@ consume(Id, Mod, BackendMessage, NumOfBatchProcs) ->
             after
                 %% Remove the message
                 %% and then retrieve the next message
-                case catch leo_backend_db_api:delete(BackendMessage, Key) of
+                case catch leo_backend_db_server:delete(NamedMqDbPid, Key) of
                     ok ->
                         ok;
                     {_, Why} ->
@@ -542,7 +553,7 @@ consume(Id, Mod, BackendMessage, NumOfBatchProcs) ->
                                                 {function, "consume/4"},
                                                 {line, ?LINE}, {body, Why}])
                 end,
-                consume(Id, Mod, BackendMessage, NumOfBatchProcs - 1)
+                consume(Id, Mod, NamedMqDbPid, NumOfBatchProcs - 1)
             end;
         not_found = Cause ->
             Cause;
