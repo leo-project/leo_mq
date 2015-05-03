@@ -71,7 +71,7 @@ new(RefSup, Id, Props) ->
                   false ->
                       Props
               end,
-
+    ok = application:set_env(leo_mq, Id, Props_1),
     ok = start_child_1(RefSup, Props_1),
     ok = start_child_2(RefSup, Props_1, Props_1#mq_properties.db_procs),
     ok.
@@ -126,7 +126,7 @@ publish(Id, KeyBin, MessageBin) ->
 -spec(suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 suspend(Id) ->
-    suspend(Id, 8).
+    exec_sub_fun(Id, fun suspend/2).
 suspend(_Id, 0) ->
     ok;
 suspend(Id, Seq) ->
@@ -140,7 +140,7 @@ suspend(Id, Seq) ->
 -spec(resume(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
-    resume(Id, 8).
+    exec_sub_fun(Id, fun resume/2).
 resume(_Id, 0) ->
     ok;
 resume(Id, Seq) ->
@@ -182,7 +182,7 @@ consumers() ->
 -spec(incr_interval(Id) ->
              ok | {error, any()} when Id::atom()).
 incr_interval(Id) ->
-    incr_interval(Id, 8).
+    exec_sub_fun(Id, fun incr_interval/2).
 incr_interval(_Id, 0) ->
     ok;
 incr_interval(Id, Seq) ->
@@ -196,7 +196,7 @@ incr_interval(Id, Seq) ->
 -spec(decr_interval(Id) ->
              ok | {error, any()} when Id::atom()).
 decr_interval(Id) ->
-    decr_interval(Id, 8).
+    exec_sub_fun(Id, fun decr_interval/2).
 decr_interval(_Id, 0) ->
     ok;
 decr_interval(Id, Seq) ->
@@ -210,7 +210,7 @@ decr_interval(Id, Seq) ->
 -spec(incr_batch_of_msgs(Id) ->
              ok | {error, any()} when Id::atom()).
 incr_batch_of_msgs(Id) ->
-    incr_batch_of_msgs(Id, 8).
+    exec_sub_fun(Id, fun incr_batch_of_msgs/2).
 incr_batch_of_msgs(_Id, 0) ->
     ok;
 incr_batch_of_msgs(Id, Seq) ->
@@ -224,14 +224,13 @@ incr_batch_of_msgs(Id, Seq) ->
 -spec(decr_batch_of_msgs(Id) ->
              ok | {error, any()} when Id::atom()).
 decr_batch_of_msgs(Id) ->
-    decr_batch_of_msgs(Id, 8).
+    exec_sub_fun(Id, fun decr_batch_of_msgs/2).
 decr_batch_of_msgs(_Id, 0) ->
     ok;
 decr_batch_of_msgs(Id, Seq) ->
     Id_1 = ?consumer_id(Id, Seq),
     leo_mq_consumer:decr_batch_of_msgs(Id_1),
     decr_batch_of_msgs(Id, Seq - 1).
-
 
 
 %%--------------------------------------------------------------------
@@ -281,4 +280,14 @@ start_child_2(RefSup, #mq_properties{publisher_id = PublisherId} = Props, Worker
                 not_started ->
                     exit(noproc)
             end
+    end.
+
+
+%% @private
+exec_sub_fun(Id, Fun) ->
+    case application:get_env(leo_mq, Id) of
+        {ok, #mq_properties{db_procs = NumOfDbProcs}} ->
+            Fun(Id, NumOfDbProcs);
+        _ ->
+            {error, not_initialized}
     end.
