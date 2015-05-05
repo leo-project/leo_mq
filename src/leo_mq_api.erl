@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012-2014 Rakuten, Inc.
+%% Copyright (c) 2012-2015 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -35,8 +35,7 @@
          publish/3, suspend/1, resume/1,
          status/1,
          consumers/0,
-         incr_interval/1, decr_interval/1,
-         incr_batch_of_msgs/1, decr_batch_of_msgs/1
+         increase/1, decrease/1
         ]).
 
 -define(APP_NAME,      'leo_mq').
@@ -92,12 +91,10 @@ prop_list_to_mq_properties(Id, Mod, Props) ->
                  root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Props, ?DEF_DB_ROOT_PATH),
                  %% interval between batchs
                  max_interval     = leo_misc:get_value(?MQ_PROP_INTERVAL_MAX,  Props, ?DEF_CONSUME_MAX_INTERVAL),
-                 min_interval     = leo_misc:get_value(?MQ_PROP_INTERVAL_MIN,  Props, ?DEF_CONSUME_MIN_INTERVAL),
                  regular_interval = leo_misc:get_value(?MQ_PROP_INTERVAL_REG,  Props, ?DEF_CONSUME_REG_INTERVAL),
                  step_interval    = leo_misc:get_value(?MQ_PROP_INTERVAL_STEP, Props, ?DEF_CONSUME_STEP_INTERVAL),
                  %% batch of messages
                  max_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MAX,  Props, ?DEF_CONSUME_MAX_BATCH_MSGS),
-                 min_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MIN,  Props, ?DEF_CONSUME_MIN_BATCH_MSGS),
                  regular_batch_of_msgs = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_REG,  Props, ?DEF_CONSUME_REG_BATCH_MSGS),
                  step_batch_of_msgs    = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_STEP, Props, ?DEF_CONSUME_STEP_BATCH_MSGS)
                 },
@@ -177,60 +174,36 @@ consumers() ->
     end.
 
 
-%% @doc Increase waiting time
+%% @doc Increase the comsumption processing
 %%
--spec(incr_interval(Id) ->
+-spec(increase(Id) ->
              ok | {error, any()} when Id::atom()).
-incr_interval(Id) ->
-    exec_sub_fun(Id, fun incr_interval/2).
-incr_interval(_Id, 0) ->
+increase(Id) ->
+    exec_sub_fun(Id, fun increase/2).
+
+%% @private
+increase(_Id, 0) ->
     ok;
-incr_interval(Id, Seq) ->
+increase(Id, Seq) ->
     Id_1 = ?consumer_id(Id, Seq),
-    leo_mq_consumer:incr_interval(Id_1),
-    incr_interval(Id, Seq - 1).
+    leo_mq_consumer:increase(Id_1),
+    increase(Id, Seq - 1).
 
 
-%% @doc Decrease waiting time
+%% @doc Decrease the comsumption processing
 %%
--spec(decr_interval(Id) ->
+-spec(decrease(Id) ->
              ok | {error, any()} when Id::atom()).
-decr_interval(Id) ->
-    exec_sub_fun(Id, fun decr_interval/2).
-decr_interval(_Id, 0) ->
+decrease(Id) ->
+    exec_sub_fun(Id, fun decrease/2).
+
+%% @private
+decrease(_Id, 0) ->
     ok;
-decr_interval(Id, Seq) ->
+decrease(Id, Seq) ->
     Id_1 = ?consumer_id(Id, Seq),
-    leo_mq_consumer:decr_interval(Id_1),
-    decr_interval(Id, Seq - 1).
-
-
-%% @doc Increase waiting time
-%%
--spec(incr_batch_of_msgs(Id) ->
-             ok | {error, any()} when Id::atom()).
-incr_batch_of_msgs(Id) ->
-    exec_sub_fun(Id, fun incr_batch_of_msgs/2).
-incr_batch_of_msgs(_Id, 0) ->
-    ok;
-incr_batch_of_msgs(Id, Seq) ->
-    Id_1 = ?consumer_id(Id, Seq),
-    leo_mq_consumer:incr_batch_of_msgs(Id_1),
-    incr_batch_of_msgs(Id, Seq - 1).
-
-
-%% @doc Decrease waiting time
-%%
--spec(decr_batch_of_msgs(Id) ->
-             ok | {error, any()} when Id::atom()).
-decr_batch_of_msgs(Id) ->
-    exec_sub_fun(Id, fun decr_batch_of_msgs/2).
-decr_batch_of_msgs(_Id, 0) ->
-    ok;
-decr_batch_of_msgs(Id, Seq) ->
-    Id_1 = ?consumer_id(Id, Seq),
-    leo_mq_consumer:decr_batch_of_msgs(Id_1),
-    decr_batch_of_msgs(Id, Seq - 1).
+    leo_mq_consumer:decrease(Id_1),
+    decrease(Id, Seq - 1).
 
 
 %%--------------------------------------------------------------------

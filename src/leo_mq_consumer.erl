@@ -1,8 +1,8 @@
 %%======================================================================
 %%
-%% Leo Object Storage
+%% Leo MQ
 %%
-%% Copyright (c) 2012-2014 Rakuten, Inc.
+%% Copyright (c) 2012-2015 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -38,8 +38,8 @@
          suspend/1,
          resume/1,
          state/1,
-         incr_interval/1, decr_interval/1,
-         incr_batch_of_msgs/1,decr_batch_of_msgs/1
+         increase/1,
+         decrease/1
         ]).
 
 %% gen_fsm callbacks
@@ -136,32 +136,18 @@ state(Id) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_STATE}, ?DEF_TIMEOUT).
 
 
-%% @doc Increase waiting-time in order to down load of processing
--spec(incr_interval(Id) ->
+%% @doc Increase comsumption processing
+-spec(increase(Id) ->
              {ok, state_of_mq()} when Id::atom()).
-incr_interval(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_WT}).
+increase(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR}).
 
 
-%% @doc Decrease waiting-time in order to up consuming speed
--spec(decr_interval(Id) ->
+%% @doc Decrease comsumption processing
+-spec(decrease(Id) ->
              {ok, state_of_mq()} when Id::atom()).
-decr_interval(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_WT}).
-
-
-%% @doc Increase batch-processes in order to  up consuming speed
--spec(incr_batch_of_msgs(Id) ->
-             {ok, state_of_mq()} when Id::atom()).
-incr_batch_of_msgs(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_BP}).
-
-
-%% @doc Decrease batch-processes in order to down load of processing
--spec(decr_batch_of_msgs(Id) ->
-             {ok, state_of_mq()} when Id::atom()).
-decr_batch_of_msgs(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_BP}).
+decrease(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR}).
 
 
 %%====================================================================
@@ -264,32 +250,26 @@ idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
     ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-idling(#event_info{event = ?EVENT_INCR_WT},
-       #state{mq_properties = #mq_properties{max_interval  = MaxInterval,
-                                             step_interval = StepInterval},
+idling(#event_info{event = ?EVENT_INCR},
+       #state{mq_properties = #mq_properties{regular_batch_of_msgs = BatchOfMsgs,
+                                             regular_interval = Interval}} = State) ->
+    NextStatus = ?ST_IDLING,
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         batch_of_msgs = BatchOfMsgs,
+                                         interval = Interval}};
+idling(#event_info{event = ?EVENT_DECR},
+       #state{mq_properties = #mq_properties{
+                                 step_batch_of_msgs = StepBatchOfMsgs,
+                                 max_interval  = MaxInterval,
+                                 step_interval = StepInterval},
+              batch_of_msgs = BatchOfMsgs,
               interval = Interval} = State) ->
     NextStatus = ?ST_IDLING,
+    BatchOfMsgs_1 = decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = incr_interval_fun(Interval, MaxInterval, StepInterval),
     {next_state, NextStatus, State#state{status = NextStatus,
+                                         batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1}};
-idling(#event_info{event = ?EVENT_DECR_WT},
-       #state{mq_properties = #mq_properties{regular_interval = RegInterval}} = State) ->
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus,
-                                         interval = RegInterval}};
-idling(#event_info{event = ?EVENT_INCR_BP},
-       #state{mq_properties = #mq_properties{regular_batch_of_msgs  = RegBatchOfMsgs}} = State) ->
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{batch_of_msgs = RegBatchOfMsgs,
-                                         status = NextStatus}};
-idling(#event_info{event = ?EVENT_DECR_BP},
-       #state{mq_properties = #mq_properties{min_batch_of_msgs  = MinBatchOfMsgs,
-                                             step_batch_of_msgs = StepBatchOfMsgs},
-              batch_of_msgs = BatchOfMsgs} = State) ->
-    NextStatus = ?ST_IDLING,
-    BatchOfMsgs_1 = decr_batch_procs_fun(BatchOfMsgs, MinBatchOfMsgs, StepBatchOfMsgs),
-    {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
-                                         status = NextStatus}};
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -335,77 +315,61 @@ running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
     ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_INCR_WT},
+
+running(#event_info{event = ?EVENT_INCR},
         #state{id = Id,
                publisher_id = PublisherId,
-               mq_properties = #mq_properties{max_interval  = MaxInterval,
-                                              step_interval = StepInterval,
-                                              min_batch_of_msgs = MinBatchProcs},
+               mq_properties = #mq_properties{
+                                  max_batch_of_msgs = MaxBatchOfMsgs,
+                                  step_interval = StepInterval,
+                                  step_batch_of_msgs = StepBatchOfMsgs},
                interval = Interval,
                batch_of_msgs = BatchOfMsgs} = State) ->
-    {NextStatus, Interval_1} =
-        case ((Interval + StepInterval) >= MaxInterval andalso
-              BatchOfMsgs =< MinBatchProcs) of
-            true ->
-                {?ST_SUSPENDING, MaxInterval};
-            false ->
-                ok = run(Id),
-                {?ST_RUNNING,
-                 incr_interval_fun(Interval, MaxInterval, StepInterval)}
-        end,
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval_1),
-    {next_state, NextStatus, State#state{status = NextStatus,
-                                         interval = Interval_1}};
-
-running(#event_info{event = ?EVENT_DECR_WT},
-        #state{id = Id,
-               publisher_id = PublisherId,
-               mq_properties = #mq_properties{min_interval = MinInterval,
-                                              step_interval = StepInterval},
-               batch_of_msgs = BatchOfMsgs,
-               interval = Interval} = State) ->
-    Interval_1 = decr_interval_fun(Interval, MinInterval, StepInterval),
-    NextStatus = ?ST_RUNNING,
-    ok = run(Id),
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval_1),
-    {next_state, NextStatus, State#state{status = NextStatus,
-                                         interval = Interval_1}};
-
-running(#event_info{event = ?EVENT_INCR_BP},
-        #state{id = Id,
-               publisher_id = PublisherId,
-               mq_properties = #mq_properties{max_batch_of_msgs  = MaxBatchOfMsgs,
-                                              step_batch_of_msgs = StepBatchOfMsgs},
-               batch_of_msgs = BatchOfMsgs,
-               interval = Interval} = State) ->
+    %% Retrieving the new interval and # of batch msgs
     BatchOfMsgs_1 =
         incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
+    Interval_1 = decr_interval_fun(Interval, StepInterval),
+
+    %% Modify the items
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs_1, Interval),
-    {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
-                                         status = NextStatus}};
+    ok = leo_mq_publisher:update_consumer_stats(
+           PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         batch_of_msgs = BatchOfMsgs_1,
+                                         interval = Interval_1}};
 
-running(#event_info{event = ?EVENT_DECR_BP},
+running(#event_info{event = ?EVENT_DECR},
         #state{id = Id,
                publisher_id = PublisherId,
-               mq_properties = #mq_properties{min_batch_of_msgs  = MinBatchOfMsgs,
-                                              step_batch_of_msgs = StepBatchOfMsgs,
-                                              max_interval       = MaxInterval},
+               mq_properties = #mq_properties{step_batch_of_msgs = StepBatchOfMsgs,
+                                              step_interval = StepInterval,
+                                              max_interval = MaxInterval},
                batch_of_msgs = BatchOfMsgs,
                interval = Interval} = State) ->
+    %% Modify the interval
+    Interval_1 = Interval + StepInterval,
+    Interval_2 = case (Interval_1 >= MaxInterval) of
+                     true ->
+                         MaxInterval;
+                     false ->
+                         Interval_1
+                 end,
+
+    %% Modify the items
     {NextStatus, BatchOfMsgs_1} =
-        case (Interval >= MaxInterval andalso
-              BatchOfMsgs =< MinBatchOfMsgs) of
+        case (BatchOfMsgs =< 0) of
             true ->
-                {?ST_SUSPENDING, MinBatchOfMsgs};
+                {?ST_SUSPENDING, 0};
             false ->
                 ok = run(Id),
                 {?ST_RUNNING,
-                 decr_batch_procs_fun(BatchOfMsgs, MinBatchOfMsgs, StepBatchOfMsgs)}
+                 decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs)}
         end,
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs_1, Interval),
+    ok = leo_mq_publisher:update_consumer_stats(
+           PublisherId, NextStatus, BatchOfMsgs_1, Interval_2),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
+                                         interval = Interval_2,
                                          status = NextStatus}};
 
 running(_, State) ->
@@ -437,33 +401,27 @@ suspending(#event_info{event = ?EVENT_STATE}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-suspending(#event_info{event = ?EVENT_DECR_WT},
+suspending(#event_info{event = ?EVENT_INCR},
            #state{id = Id,
                   publisher_id = PublisherId,
-                  mq_properties = #mq_properties{min_interval  = MinInterval,
-                                                 step_interval = StepInterval},
+                  mq_properties = #mq_properties{
+                                     max_batch_of_msgs  = MaxBatchOfMsgs,
+                                     step_batch_of_msgs = StepBatchOfMsgs,
+                                     step_interval = StepInterval},
                   batch_of_msgs = BatchOfMsgs,
                   interval = Interval} = State) ->
-    Interval_1 = decr_interval_fun(Interval, MinInterval, StepInterval),
-    timer:apply_after(timer:seconds(1), ?MODULE, run, [Id]),
-
-    NextStatus = ?ST_RUNNING,
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval_1),
-    {next_state, NextStatus, State#state{status = NextStatus,
-                                         interval = Interval_1}};
-suspending(#event_info{event = ?EVENT_INCR_BP},
-           #state{id = Id,
-                  publisher_id = PublisherId,
-                  mq_properties = #mq_properties{max_batch_of_msgs  = MaxBatchOfMsgs,
-                                                 step_batch_of_msgs = StepBatchOfMsgs},
-                  batch_of_msgs = BatchOfMsgs,
-                  interval = Interval} = State) ->
+    %% Modify the item
     BatchOfMsgs_1 = incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
-    NextStatus = ?ST_RUNNING,
+    Interval_1 = decr_interval_fun(Interval, StepInterval),
+
+    %% To the next status
     timer:apply_after(timer:seconds(1), ?MODULE, run, [Id]),
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs_1, Interval),
+    NextStatus = ?ST_RUNNING,
+    ok = leo_mq_publisher:update_consumer_stats(
+           PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
-                                         batch_of_msgs = BatchOfMsgs_1}};
+                                         batch_of_msgs = BatchOfMsgs_1,
+                                         interval = Interval_1}};
 suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -608,17 +566,16 @@ incr_interval_fun(Interval, MaxInterval, StepInterval) ->
 
 %% @doc Decrease the waiting time
 %% @private
--spec(decr_interval_fun(Interval, MinInterval, StepInterval) ->
+-spec(decr_interval_fun(Interval, StepInterval) ->
              NewInterval when Interval::non_neg_integer(),
-                              MinInterval::non_neg_integer(),
                               StepInterval::non_neg_integer(),
                               NewInterval::non_neg_integer()).
-decr_interval_fun(Interval, MinInterval, StepInterval) ->
+decr_interval_fun(Interval, StepInterval) ->
 
     Interval_1 = Interval - StepInterval,
-    case (Interval_1 < MinInterval) of
+    case (Interval_1 =< 0) of
         true ->
-            MinInterval;
+            0;
         false ->
             Interval_1
     end.
@@ -632,7 +589,6 @@ decr_interval_fun(Interval, MinInterval, StepInterval) ->
                                 StepBatchProcs::non_neg_integer(),
                                 NewBatchProcs::non_neg_integer()).
 incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
-
     BatchProcs_1 = BatchProcs + StepBatchProcs,
     case (BatchProcs_1 > MaxBatchProcs) of
         true  ->
@@ -644,16 +600,15 @@ incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
 
 %% @doc decrease the num of messages/batch-proccessing
 %% @private
--spec(decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+-spec(decr_batch_procs_fun(BatchProcs, StepBatchProcs) ->
              NewBatchProcs when BatchProcs::non_neg_integer(),
-                                MinBatchProcs::non_neg_integer(),
                                 StepBatchProcs::non_neg_integer(),
                                 NewBatchProcs::non_neg_integer()).
-decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+decr_batch_procs_fun(BatchProcs, StepBatchProcs) ->
     BatchProcs_1 = BatchProcs - StepBatchProcs,
-    case (BatchProcs_1 < MinBatchProcs) of
+    case (BatchProcs_1 =< 0) of
         true ->
-            MinBatchProcs;
+            0;
         false ->
             BatchProcs_1
     end.

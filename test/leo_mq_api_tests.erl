@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012-2014 Rakuten, Inc.
+%% Copyright (c) 2012-2015 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -111,11 +111,11 @@ publish_(Path) ->
                         ok
                 end),
     Ret =  leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
-                                                     {root_path, Path},
-                                                     {db_procs, 8},
-                                                     {num_of_batch_processes, 10},
-                                                     {max_interval, 1000},
-                                                     {min_interval, 100}]),
+                                                {root_path, Path},
+                                                {db_procs, 8},
+                                                {num_of_batch_processes, 10},
+                                                {max_interval, 1000},
+                                                {min_interval, 100}]),
     ?assertEqual(ok, Ret),
     ok = leo_mq_api:publish(
            ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_1), term_to_binary(?TEST_META_1)),
@@ -210,15 +210,15 @@ pub_sub_1() ->
     ok = leo_mq_api:resume(?QUEUE_ID_PUBLISHER),
 
     %% check incr/decr interval
-    [ok = leo_mq_api:incr_interval(?QUEUE_ID_PUBLISHER)      || _N <- lists:seq(1, 12)],
-    [ok = leo_mq_api:decr_batch_of_msgs(?QUEUE_ID_PUBLISHER) || _N <- lists:seq(1, 12)],
+    [ok = leo_mq_api:decrease(?QUEUE_ID_PUBLISHER) || _N <- lists:seq(1, 12)],
     timer:sleep(timer:seconds(5)),
     {ok, State_2} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
     ?assertEqual(?ST_SUSPENDING, State_2),
-    [ok = leo_mq_api:decr_interval(?QUEUE_ID_PUBLISHER) || _N <- lists:seq(1, 5)],
 
     %% check current status
     timer:sleep(timer:seconds(10)),
+    [ok = leo_mq_api:increase(?QUEUE_ID_PUBLISHER) || _N <- lists:seq(1, 12)],
+
     ok = check_state(),
     {ok, State_3} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
     ?debugVal(State_3),

@@ -120,10 +120,8 @@
 -define(EVENT_RESUME,   'resume').
 -define(EVENT_FINISH,   'finish').
 -define(EVENT_STATE,    'state').
--define(EVENT_INCR_WT,  'incr_interval').
--define(EVENT_DECR_WT,  'decr_interval').
--define(EVENT_INCR_BP,  'incr_batch_of_msgs').
--define(EVENT_DECR_BP,  'decr_batch_of_msgs').
+-define(EVENT_INCR,     'increase').
+-define(EVENT_DECR,     'decrease').
 -type(event_of_compaction() ::?EVENT_RUN      |
                               ?EVENT_DIAGNOSE |
                               ?EVENT_LOCK     |
@@ -131,10 +129,8 @@
                               ?EVENT_RESUME   |
                               ?EVENT_FINISH   |
                               ?EVENT_STATE    |
-                              ?EVENT_INCR_WT  |
-                              ?EVENT_DECR_WT  |
-                              ?EVENT_INCR_BP  |
-                              ?EVENT_DECR_BP
+                              ?EVENT_INCR     |
+                              ?EVENT_DECR
                               ).
 
 
