@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012-2014 Rakuten, Inc.
+%% Copyright (c) 2012-2015 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -35,8 +35,7 @@
          publish/3, suspend/1, resume/1,
          status/1,
          consumers/0,
-         incr_interval/1, decr_interval/1,
-         incr_batch_of_msgs/1, decr_batch_of_msgs/1
+         increase/1, decrease/1
         ]).
 
 -define(APP_NAME,      'leo_mq').
@@ -71,9 +70,9 @@ new(RefSup, Id, Props) ->
                   false ->
                       Props
               end,
-
+    ok = application:set_env(leo_mq, Id, Props_1),
     ok = start_child_1(RefSup, Props_1),
-    ok = start_child_2(RefSup, Props_1),
+    ok = start_child_2(RefSup, Props_1, Props_1#mq_properties.db_procs),
     ok.
 
 
@@ -85,19 +84,17 @@ new(RefSup, Id, Props) ->
 prop_list_to_mq_properties(Id, Mod, Props) ->
     Props_1 = #mq_properties{
                  publisher_id = Id,
-                 consumer_id  = ?consumer_id(Id),
+                 consumer_id  = ?consumer_id(Id, 1),
                  mod_callback = leo_misc:get_value(?MQ_PROP_MOD,          Props, Mod),
                  db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,      Props, ?DEF_BACKEND_DB),
                  db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,     Props, ?DEF_BACKEND_DB_PROCS),
                  root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH,    Props, ?DEF_DB_ROOT_PATH),
                  %% interval between batchs
                  max_interval     = leo_misc:get_value(?MQ_PROP_INTERVAL_MAX,  Props, ?DEF_CONSUME_MAX_INTERVAL),
-                 min_interval     = leo_misc:get_value(?MQ_PROP_INTERVAL_MIN,  Props, ?DEF_CONSUME_MIN_INTERVAL),
                  regular_interval = leo_misc:get_value(?MQ_PROP_INTERVAL_REG,  Props, ?DEF_CONSUME_REG_INTERVAL),
                  step_interval    = leo_misc:get_value(?MQ_PROP_INTERVAL_STEP, Props, ?DEF_CONSUME_STEP_INTERVAL),
                  %% batch of messages
                  max_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MAX,  Props, ?DEF_CONSUME_MAX_BATCH_MSGS),
-                 min_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MIN,  Props, ?DEF_CONSUME_MIN_BATCH_MSGS),
                  regular_batch_of_msgs = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_REG,  Props, ?DEF_CONSUME_REG_BATCH_MSGS),
                  step_batch_of_msgs    = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_STEP, Props, ?DEF_CONSUME_STEP_BATCH_MSGS)
                 },
@@ -126,8 +123,13 @@ publish(Id, KeyBin, MessageBin) ->
 -spec(suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 suspend(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:suspend(Id_1).
+    exec_sub_fun(Id, fun suspend/2).
+suspend(_Id, 0) ->
+    ok;
+suspend(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:suspend(Id_1),
+    suspend(Id, Seq - 1).
 
 
 %% @doc Resume consumption of messages in the queue
@@ -135,8 +137,13 @@ suspend(Id) ->
 -spec(resume(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:resume(Id_1).
+    exec_sub_fun(Id, fun resume/2).
+resume(_Id, 0) ->
+    ok;
+resume(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:resume(Id_1),
+    resume(Id, Seq - 1).
 
 
 %% @doc Retrieve a current state from the queue
@@ -167,40 +174,36 @@ consumers() ->
     end.
 
 
-%% @doc Increase waiting time
+%% @doc Increase the comsumption processing
 %%
--spec(incr_interval(Id) ->
+-spec(increase(Id) ->
              ok | {error, any()} when Id::atom()).
-incr_interval(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:incr_interval(Id_1).
+increase(Id) ->
+    exec_sub_fun(Id, fun increase/2).
+
+%% @private
+increase(_Id, 0) ->
+    ok;
+increase(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:increase(Id_1),
+    increase(Id, Seq - 1).
 
 
-%% @doc Decrease waiting time
+%% @doc Decrease the comsumption processing
 %%
--spec(decr_interval(Id) ->
+-spec(decrease(Id) ->
              ok | {error, any()} when Id::atom()).
-decr_interval(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:decr_interval(Id_1).
+decrease(Id) ->
+    exec_sub_fun(Id, fun decrease/2).
 
-
-%% @doc Increase waiting time
-%%
--spec(incr_batch_of_msgs(Id) ->
-             ok | {error, any()} when Id::atom()).
-incr_batch_of_msgs(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:incr_batch_of_msgs(Id_1).
-
-
-%% @doc Decrease waiting time
-%%
--spec(decr_batch_of_msgs(Id) ->
-             ok | {error, any()} when Id::atom()).
-decr_batch_of_msgs(Id) ->
-    Id_1 = ?consumer_id(Id),
-    leo_mq_consumer:decr_batch_of_msgs(Id_1).
+%% @private
+decrease(_Id, 0) ->
+    ok;
+decrease(Id, Seq) ->
+    Id_1 = ?consumer_id(Id, Seq),
+    leo_mq_consumer:decrease(Id_1),
+    decrease(Id, Seq - 1).
 
 
 %%--------------------------------------------------------------------
@@ -228,14 +231,17 @@ start_child_1(RefSup, #mq_properties{publisher_id = PublisherId} = Props) ->
     end.
 
 %% @private Start 'leo_mq_fsm_controller'
-start_child_2(RefSup, #mq_properties{publisher_id = PublisherId,
-                                     consumer_id  = ConsumerId} = Props) ->
+start_child_2(_RefSup, #mq_properties{publisher_id = _PublisherId} = _Props, 0) ->
+    ok;
+start_child_2(RefSup, #mq_properties{publisher_id = PublisherId} = Props, WorkerSeqNum) ->
+    ConsumerId = ?consumer_id(PublisherId, WorkerSeqNum),
     case supervisor:start_child(
            RefSup, {ConsumerId,
-                    {leo_mq_consumer, start_link, [ConsumerId, PublisherId, Props]},
+                    {leo_mq_consumer, start_link,
+                     [ConsumerId, PublisherId, Props, (WorkerSeqNum - 1)]},
                     permanent, 2000, worker, [leo_mq_consumer]}) of
         {ok, _Pid} ->
-            ok;
+            start_child_2(RefSup, Props, WorkerSeqNum - 1);
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
@@ -247,4 +253,14 @@ start_child_2(RefSup, #mq_properties{publisher_id = PublisherId,
                 not_started ->
                     exit(noproc)
             end
+    end.
+
+
+%% @private
+exec_sub_fun(Id, Fun) ->
+    case application:get_env(leo_mq, Id) of
+        {ok, #mq_properties{db_procs = NumOfDbProcs}} ->
+            Fun(Id, NumOfDbProcs);
+        _ ->
+            {error, not_initialized}
     end.
