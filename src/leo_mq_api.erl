@@ -167,34 +167,21 @@ consumers() ->
         [] ->
             {ok, []};
         Children ->
-            Consumers = [ #mq_state{id = ?publisher_id(Worker),
-                                    state = element(2, leo_mq_publisher:status(?publisher_id(Worker)))
-                                   } ||
+            Consumers = [ #mq_state{id = ?publisher_id(Worker)} ||
                             {Worker,_,worker,[leo_mq_consumer]} <- Children ],
             Fun = fun(Id) ->
-                          {TotalMsgs, State_1} =
+                          State_1 =
                               lists:foldl(
-                                fun(#mq_state{id = Id_1,
-                                              state = State},
-                                    {NumOfMsgs, Props}) when Id == Id_1 andalso
-                                                             Props == [] ->
-                                        NumOfMsgs_1 =
-                                            NumOfMsgs + leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, State),
-                                        {NumOfMsgs_1,
-                                         [{?MQ_CNS_PROP_STATUS,
-                                           leo_misc:get_value(?MQ_CNS_PROP_STATUS, State)},
-                                          {?MQ_CNS_PROP_BATCH_OF_MSGS,
-                                           leo_misc:get_value(?MQ_CNS_PROP_BATCH_OF_MSGS, State)},
-                                          {?MQ_CNS_PROP_INTERVAL,
-                                           leo_misc:get_value(?MQ_CNS_PROP_INTERVAL, State)}
-                                         ]};
+                                fun(#mq_state{id = Id_1}, SoFar) when Id == Id_1 andalso
+                                                                      SoFar == [] ->
+                                        {ok, State} = leo_mq_publisher:status(Id),
+                                        State;
                                    (_, SoFar) ->
                                         SoFar
-                                end, {0, []}, Consumers),
+                                end, [], Consumers),
 
                           #mq_state{id = Id,
-                                    state = State_1 ++
-                                        [{?MQ_CNS_PROP_NUM_OF_MSGS, TotalMsgs}]}
+                                    state = State_1}
                   end,
             Consumers_1 = lists:map(Fun, consumers_1(Consumers, sets:new())),
             {ok, Consumers_1}
