@@ -172,8 +172,7 @@ consumers() ->
             Fun = fun(Id) ->
                           State_1 =
                               lists:foldl(
-                                fun(#mq_state{id = Id_1}, SoFar) when Id == Id_1 andalso
-                                                                      SoFar == [] ->
+                                fun(#mq_state{id = Id_1}, []) when Id == Id_1 ->
                                         {ok, State} = leo_mq_publisher:status(Id),
                                         State;
                                    (_, SoFar) ->
