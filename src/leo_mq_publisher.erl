@@ -55,7 +55,7 @@
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MIN,  5000).
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MAX, 10000).
 
--record(state, {id               :: atom(),
+-record(state, {id :: atom(),
                 mq_properties = #mq_properties{} :: #mq_properties{},
                 count = 0 :: non_neg_integer(),
                 consumer_status = ?ST_IDLING :: state_of_mq(),
