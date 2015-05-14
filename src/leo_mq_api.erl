@@ -172,30 +172,28 @@ consumers() ->
                                    } ||
                             {Worker,_,worker,[leo_mq_consumer]} <- Children ],
             Fun = fun(Id) ->
-                          {TotalMsgs, StateOfId} =
+                          {TotalMsgs, State_1} =
                               lists:foldl(
                                 fun(#mq_state{id = Id_1,
-                                              state = State}, {NumOfMsgs, Other}) when Id == Id_1 ->
+                                              state = State},
+                                    {NumOfMsgs, Props}) when Id == Id_1 andalso
+                                                             Props == [] ->
                                         NumOfMsgs_1 =
                                             NumOfMsgs + leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, State),
-                                        case Other of
-                                            [] ->
-                                                {NumOfMsgs_1,
-                                                 [{?MQ_CNS_PROP_STATUS,
-                                                   leo_misc:get_value(?MQ_CNS_PROP_STATUS, State)},
-                                                  {?MQ_CNS_PROP_BATCH_OF_MSGS,
-                                                   leo_misc:get_value(?MQ_CNS_PROP_BATCH_OF_MSGS, State)},
-                                                  {?MQ_CNS_PROP_INTERVAL,
-                                                   leo_misc:get_value(?MQ_CNS_PROP_INTERVAL, State)}
-                                                 ]};
-                                            _ ->
-                                                {NumOfMsgs_1, Other}
-                                        end;
+                                        {NumOfMsgs_1,
+                                         [{?MQ_CNS_PROP_STATUS,
+                                           leo_misc:get_value(?MQ_CNS_PROP_STATUS, State)},
+                                          {?MQ_CNS_PROP_BATCH_OF_MSGS,
+                                           leo_misc:get_value(?MQ_CNS_PROP_BATCH_OF_MSGS, State)},
+                                          {?MQ_CNS_PROP_INTERVAL,
+                                           leo_misc:get_value(?MQ_CNS_PROP_INTERVAL, State)}
+                                         ]};
                                    (_, SoFar) ->
                                         SoFar
                                 end, {0, []}, Consumers),
+
                           #mq_state{id = Id,
-                                    state = StateOfId ++
+                                    state = State_1 ++
                                         [{?MQ_CNS_PROP_NUM_OF_MSGS, TotalMsgs}]}
                   end,
             Consumers_1 = lists:map(Fun, consumers_1(Consumers, sets:new())),
