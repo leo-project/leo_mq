@@ -169,20 +169,10 @@ consumers() ->
         Children ->
             Consumers = [ #mq_state{id = ?publisher_id(Worker)} ||
                             {Worker,_,worker,[leo_mq_consumer]} <- Children ],
-            Fun = fun(Id) ->
-                          State_1 =
-                              lists:foldl(
-                                fun(#mq_state{id = Id_1}, []) when Id == Id_1 ->
-                                        {ok, State} = leo_mq_publisher:status(Id),
-                                        State;
-                                   (_, SoFar) ->
-                                        SoFar
-                                end, [], Consumers),
-
-                          #mq_state{id = Id,
-                                    state = State_1}
-                  end,
-            Consumers_1 = lists:map(Fun, consumers_1(Consumers, sets:new())),
+            Consumers_1 = lists:map(fun(Id) ->
+                                            {ok, State} = leo_mq_publisher:status(Id),
+                                            #mq_state{id = Id, state = State}
+                                    end, consumers_1(Consumers, sets:new())),
             {ok, Consumers_1}
     end.
 
