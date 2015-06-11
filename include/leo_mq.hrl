@@ -64,6 +64,7 @@
 -define(DEF_CONSUME_MIN_BATCH_MSGS,   100).
 -define(DEF_CONSUME_REG_BATCH_MSGS,   300).
 -define(DEF_CONSUME_STEP_BATCH_MSGS,  100).
+
 -endif.
 
 -define(MQ_CNS_PROP_NUM_OF_MSGS,   'consumer_num_of_msgs').

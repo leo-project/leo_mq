@@ -74,7 +74,8 @@
           worker_seq_num = 0  :: non_neg_integer(),
           interval = 0        :: non_neg_integer(),
           batch_of_msgs = 0   :: non_neg_integer(),
-          start_datetime = 0  :: non_neg_integer()
+          start_datetime = 0  :: non_neg_integer(),
+          prev_proc_time = 0  :: non_neg_integer()
          }).
 
 
@@ -283,14 +284,22 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                                                 publisher_id = PublisherId,
                                                 batch_of_msgs = BatchOfMsgs,
                                                 interval = Interval} = State) ->
-    %% Consume messages in the queue
     {NextStatus, State_2} =
         case catch consume(State) of
             %% Execute the data-compaction repeatedly
             ok ->
-                %% Set interval
-                Time = interval(Interval, erlang:round(Interval * 1.2)),
-                timer:apply_after(Time, ?MODULE, run, [Id]),
+                %% Set interval,
+                %% Unbalance interval w/ohter processes)
+                Interval_1 = case Interval of
+                                 0 ->
+                                     ?DEF_CONSUME_MIN_INTERVAL;
+                                 _ ->
+                                     Interval
+                             end,
+                Interval_2 = Interval + erlang:phash2(
+                                          leo_date:clock(),
+                                          erlang:round(Interval_1/3)),
+                timer:apply_after(Interval_2, ?MODULE, run, [Id]),
                 {?ST_RUNNING,  State};
             %% Reached end of the object-container
             not_found ->
@@ -300,13 +309,18 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
             {'EXIT', Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING,  State_1};
+            {error, short_interval} ->
+                {?ST_RUNNING,  State};
             %% An epected error has occured
             {error, Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING,  State_1}
         end,
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State_2#state{status = NextStatus}};
+
+    ok = leo_mq_publisher:update_consumer_stats(
+           PublisherId, NextStatus, BatchOfMsgs, Interval),
+    {next_state, NextStatus, State_2#state{status = NextStatus,
+                                           prev_proc_time = leo_date:clock()}};
 
 running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
                                                     batch_of_msgs = BatchOfMsgs,
@@ -468,8 +482,18 @@ consume(#state{mq_properties = #mq_properties{
                                   publisher_id = PublisherId,
                                   mod_callback = Mod},
                named_mqdb_pid = NamedMqDbPid,
-               batch_of_msgs  = NumOfBatchProcs} = _State) ->
-    consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs).
+               batch_of_msgs  = NumOfBatchProcs,
+               interval = Interval,
+               prev_proc_time = PrevProcTime} = _State) ->
+    ThisTime = leo_date:clock(),
+    Diff = erlang:round((ThisTime - PrevProcTime) / 1000),
+
+    case (Diff >= Interval) of
+        true ->
+            consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs);
+        false ->
+            {error, short_interval}
+    end.
 
 %% @doc Consume a message
 %% @private
@@ -539,8 +563,10 @@ defer_consume(Id, MaxInterval, MinInterval) ->
 interval(Interval, MaxInterval) when Interval < MaxInterval ->
     Interval_1 = random:uniform(MaxInterval),
     Interval_2 = case (Interval_1 < Interval) of
-                     true  -> Interval;
-                     false -> Interval_1
+                     true ->
+                         Interval;
+                     false ->
+                         Interval_1
                  end,
     Interval_2;
 interval(Interval,_) ->
@@ -575,7 +601,7 @@ decr_interval_fun(Interval, StepInterval) ->
     Interval_1 = Interval - StepInterval,
     case (Interval_1 =< 0) of
         true ->
-            0;
+            10;
         false ->
             Interval_1
     end.

@@ -71,28 +71,26 @@
 %%--------------------------------------------------------------------
 -ifdef(EUNIT).
 
-mq_test_() ->
-    {foreach, fun setup/0, fun teardown/1,
-     [{with, [T]} || T <- [fun publish_/1
-                          ]]}.
+publish_test_() ->
+    {setup,
+     fun ( ) ->
+             application:start(leo_mq)
+     end,
+     fun (_) ->
+             application:stop(leo_mq),
+             ok
+     end,
+     [
+      {"test pub/sub-2",
+       {timeout, timer:seconds(1000),fun publish/0}}
+     ]}.
 
-setup() ->
-    application:start(leo_mq),
 
+publish() ->
     S = os:cmd("pwd"),
     Path = string:substr(S, 1, length(S) -1) ++ "/queue",
     os:cmd("rm -rf " ++ Path),
-    Path.
 
-
-teardown(Path) ->
-    meck:unload(),
-    os:cmd("rm -rf " ++ Path),
-    application:stop(leo_mq),
-    ok.
-
-
-publish_(Path) ->
     meck:new(?TEST_CLIENT_MOD, [non_strict]),
     meck:expect(?TEST_CLIENT_MOD, handle_call,
                 fun({consume, Id, MsgBin}) ->
@@ -128,13 +126,16 @@ publish_(Path) ->
     ok = leo_mq_api:publish(
            ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_5), term_to_binary(?TEST_META_5)),
 
-    timer:sleep(1000),
+    timer:sleep(500),
     ok = check_state(),
 
     {ok, Stats} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
     ?debugVal(Stats),
     Count = leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats),
     ?assertEqual(0, Count),
+
+    meck:unload(),
+    os:cmd("rm -rf " ++ Path),
     ok.
 
 check_state() ->
