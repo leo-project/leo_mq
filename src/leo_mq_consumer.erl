@@ -266,6 +266,7 @@ idling(#event_info{event = ?EVENT_DECR},
               batch_of_msgs = BatchOfMsgs,
               interval = Interval} = State) ->
     NextStatus = ?ST_IDLING,
+
     BatchOfMsgs_1 = decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = incr_interval_fun(Interval, MaxInterval, StepInterval),
     {next_state, NextStatus, State#state{status = NextStatus,
@@ -356,9 +357,10 @@ running(#event_info{event = ?EVENT_INCR},
 running(#event_info{event = ?EVENT_DECR},
         #state{id = Id,
                publisher_id = PublisherId,
-               mq_properties = #mq_properties{step_batch_of_msgs = StepBatchOfMsgs,
-                                              step_interval = StepInterval,
-                                              max_interval = MaxInterval},
+               mq_properties = #mq_properties{
+                                  step_batch_of_msgs = StepBatchOfMsgs,
+                                  step_interval = StepInterval,
+                                  max_interval = MaxInterval},
                batch_of_msgs = BatchOfMsgs,
                interval = Interval} = State) ->
     %% Modify the interval
@@ -479,6 +481,7 @@ after_execute(Ret, #state{id = Id} = State) ->
 -spec(consume(State) ->
              ok | not_found | {error, any()} when State::#state{}).
 consume(#state{mq_properties = #mq_properties{
+                                  db_procs = NumOfProcs,
                                   publisher_id = PublisherId,
                                   mod_callback = Mod},
                named_mqdb_pid = NamedMqDbPid,
@@ -490,7 +493,8 @@ consume(#state{mq_properties = #mq_properties{
 
     case (Diff >= Interval) of
         true ->
-            consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs);
+            NumOfBatchProcs_1 = leo_math:ceiling(NumOfBatchProcs / NumOfProcs),
+            consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs_1);
         false ->
             {error, short_interval}
     end.
@@ -597,7 +601,6 @@ incr_interval_fun(Interval, MaxInterval, StepInterval) ->
                               StepInterval::non_neg_integer(),
                               NewInterval::non_neg_integer()).
 decr_interval_fun(Interval, StepInterval) ->
-
     Interval_1 = Interval - StepInterval,
     case (Interval_1 =< 0) of
         true ->

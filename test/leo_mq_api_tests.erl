@@ -181,7 +181,7 @@ pub_sub_1() ->
     Ret  = leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
                                                 {root_path, Path},
                                                 {db_procs, 8},
-                                                {regularx_batch_of_msgs, 10},
+                                                {regularx_batch_of_msgs, 100},
                                                 {max_interval, 1000},
                                                 {min_interval, 100}]),
     ?assertEqual(ok, Ret),
@@ -190,6 +190,7 @@ pub_sub_1() ->
     ok = publish_messages(100),
     {ok, Stats} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
     ?debugVal(Stats),
+
     TotalMsgs_1 = leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats),
     ?assertEqual(true, TotalMsgs_1 > 0),
 
