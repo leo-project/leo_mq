@@ -344,7 +344,12 @@ running(#event_info{event = ?EVENT_INCR},
     BatchOfMsgs_1 =
         incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
-
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "running/2 - event_incr"},
+                           {line, ?LINE}, {body, [{id, Id},
+                                                  {batch_of_msgs, BatchOfMsgs_1},
+                                                  {interval, Interval_1}
+                                                 ]}]),
     %% Modify the items
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
@@ -382,6 +387,12 @@ running(#event_info{event = ?EVENT_DECR},
                 {?ST_RUNNING,
                  decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs)}
         end,
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "running/2 - event_decr"},
+                           {line, ?LINE}, {body, [{id, Id},
+                                                  {batch_of_msgs, BatchOfMsgs_1},
+                                                  {interval, Interval_2}
+                                                 ]}]),
     ok = leo_mq_publisher:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_2),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
@@ -429,7 +440,12 @@ suspending(#event_info{event = ?EVENT_INCR},
     %% Modify the item
     BatchOfMsgs_1 = incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
-
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "suspending/2 - event_incr"},
+                           {line, ?LINE}, {body, [{id, Id},
+                                                  {batch_of_msgs, BatchOfMsgs_1},
+                                                  {interval, Interval_1}
+                                                 ]}]),
     %% To the next status
     timer:apply_after(timer:seconds(1), ?MODULE, run, [Id]),
     NextStatus = ?ST_RUNNING,
