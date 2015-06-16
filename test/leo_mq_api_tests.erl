@@ -138,14 +138,20 @@ publish() ->
     os:cmd("rm -rf " ++ Path),
     ok.
 
+
 check_state() ->
-    timer:sleep(100),
+    check_state_1(0).
+check_state_1(3) ->
+    ok;
+check_state_1(Times) ->
+    timer:sleep(500),
     case leo_mq_consumer:state(?QUEUE_ID_CONSUMER) of
         {ok, ?ST_IDLING} ->
-            ok;
+            check_state_1(Times + 1);
         {ok,_Other} ->
-            check_state()
+            check_state_1(Times)
     end.
+
 
 pub_sub_test_() ->
     {setup,
