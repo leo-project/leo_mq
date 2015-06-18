@@ -74,7 +74,8 @@
           worker_seq_num = 0  :: non_neg_integer(),
           interval = 0        :: non_neg_integer(),
           batch_of_msgs = 0   :: non_neg_integer(),
-          start_datetime = 0  :: non_neg_integer()
+          start_datetime = 0  :: non_neg_integer(),
+          prev_proc_time = 0  :: non_neg_integer()
          }).
 
 
@@ -257,16 +258,16 @@ idling(#event_info{event = ?EVENT_INCR},
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs,
                                          interval = Interval}};
+%% @TODO:
 idling(#event_info{event = ?EVENT_DECR},
-       #state{mq_properties = #mq_properties{
-                                 step_batch_of_msgs = StepBatchOfMsgs,
-                                 max_interval  = MaxInterval,
-                                 step_interval = StepInterval},
+       #state{mq_properties = MQProps,
               batch_of_msgs = BatchOfMsgs,
               interval = Interval} = State) ->
-    NextStatus = ?ST_IDLING,
+    #mq_properties{max_interval = MaxInterval} = MQProps,
+    {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     BatchOfMsgs_1 = decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = incr_interval_fun(Interval, MaxInterval, StepInterval),
+    NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1}};
@@ -283,14 +284,22 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                                                 publisher_id = PublisherId,
                                                 batch_of_msgs = BatchOfMsgs,
                                                 interval = Interval} = State) ->
-    %% Consume messages in the queue
     {NextStatus, State_2} =
         case catch consume(State) of
             %% Execute the data-compaction repeatedly
             ok ->
-                %% Set interval
-                Time = interval(Interval, erlang:round(Interval * 1.2)),
-                timer:apply_after(Time, ?MODULE, run, [Id]),
+                %% Set interval,
+                %% Unbalance interval w/ohter processes)
+                Interval_1 = case Interval of
+                                 0 ->
+                                     ?DEF_CONSUME_MIN_INTERVAL;
+                                 _ ->
+                                     Interval
+                             end,
+                Interval_2 = Interval + erlang:phash2(
+                                          leo_date:clock(),
+                                          erlang:round(Interval_1/3)),
+                timer:apply_after(Interval_2, ?MODULE, run, [Id]),
                 {?ST_RUNNING,  State};
             %% Reached end of the object-container
             not_found ->
@@ -300,13 +309,18 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
             {'EXIT', Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING,  State_1};
+            {error, short_interval} ->
+                {?ST_RUNNING,  State};
             %% An epected error has occured
             {error, Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING,  State_1}
         end,
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State_2#state{status = NextStatus}};
+
+    ok = leo_mq_publisher:update_consumer_stats(
+           PublisherId, NextStatus, BatchOfMsgs, Interval),
+    {next_state, NextStatus, State_2#state{status = NextStatus,
+                                           prev_proc_time = leo_date:clock()}};
 
 running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
                                                     batch_of_msgs = BatchOfMsgs,
@@ -319,17 +333,21 @@ running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
 running(#event_info{event = ?EVENT_INCR},
         #state{id = Id,
                publisher_id = PublisherId,
-               mq_properties = #mq_properties{
-                                  max_batch_of_msgs = MaxBatchOfMsgs,
-                                  step_interval = StepInterval,
-                                  step_batch_of_msgs = StepBatchOfMsgs},
+               mq_properties = MQProps,
                interval = Interval,
                batch_of_msgs = BatchOfMsgs} = State) ->
     %% Retrieving the new interval and # of batch msgs
+    #mq_properties{max_batch_of_msgs = MaxBatchOfMsgs} = MQProps,
+    {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     BatchOfMsgs_1 =
         incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
-
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "running/2 - event_incr"},
+                           {line, ?LINE}, {body, [{id, Id},
+                                                  {batch_of_msgs, BatchOfMsgs_1},
+                                                  {interval, Interval_1}
+                                                 ]}]),
     %% Modify the items
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
@@ -342,12 +360,12 @@ running(#event_info{event = ?EVENT_INCR},
 running(#event_info{event = ?EVENT_DECR},
         #state{id = Id,
                publisher_id = PublisherId,
-               mq_properties = #mq_properties{step_batch_of_msgs = StepBatchOfMsgs,
-                                              step_interval = StepInterval,
-                                              max_interval = MaxInterval},
+               mq_properties = MQProps,
                batch_of_msgs = BatchOfMsgs,
                interval = Interval} = State) ->
     %% Modify the interval
+    #mq_properties{max_interval = MaxInterval} = MQProps,
+    {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     Interval_1 = Interval + StepInterval,
     Interval_2 = case (Interval_1 >= MaxInterval) of
                      true ->
@@ -366,6 +384,12 @@ running(#event_info{event = ?EVENT_DECR},
                 {?ST_RUNNING,
                  decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs)}
         end,
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "running/2 - event_decr"},
+                           {line, ?LINE}, {body, [{id, Id},
+                                                  {batch_of_msgs, BatchOfMsgs_1},
+                                                  {interval, Interval_2}
+                                                 ]}]),
     ok = leo_mq_publisher:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_2),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
@@ -404,16 +428,20 @@ suspending(#event_info{event = ?EVENT_STATE}, State) ->
 suspending(#event_info{event = ?EVENT_INCR},
            #state{id = Id,
                   publisher_id = PublisherId,
-                  mq_properties = #mq_properties{
-                                     max_batch_of_msgs  = MaxBatchOfMsgs,
-                                     step_batch_of_msgs = StepBatchOfMsgs,
-                                     step_interval = StepInterval},
+                  mq_properties = MQProps,
                   batch_of_msgs = BatchOfMsgs,
                   interval = Interval} = State) ->
     %% Modify the item
+    #mq_properties{max_batch_of_msgs = MaxBatchOfMsgs} = MQProps,
+    {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     BatchOfMsgs_1 = incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
-
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "suspending/2 - event_incr"},
+                           {line, ?LINE}, {body, [{id, Id},
+                                                  {batch_of_msgs, BatchOfMsgs_1},
+                                                  {interval, Interval_1}
+                                                 ]}]),
     %% To the next status
     timer:apply_after(timer:seconds(1), ?MODULE, run, [Id]),
     NextStatus = ?ST_RUNNING,
@@ -465,11 +493,23 @@ after_execute(Ret, #state{id = Id} = State) ->
 -spec(consume(State) ->
              ok | not_found | {error, any()} when State::#state{}).
 consume(#state{mq_properties = #mq_properties{
+                                  db_procs = NumOfProcs,
                                   publisher_id = PublisherId,
                                   mod_callback = Mod},
                named_mqdb_pid = NamedMqDbPid,
-               batch_of_msgs  = NumOfBatchProcs} = _State) ->
-    consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs).
+               batch_of_msgs  = NumOfBatchProcs,
+               interval = Interval,
+               prev_proc_time = PrevProcTime} = _State) ->
+    ThisTime = leo_date:clock(),
+    Diff = erlang:round((ThisTime - PrevProcTime) / 1000),
+
+    case (Diff >= Interval) of
+        true ->
+            NumOfBatchProcs_1 = leo_math:ceiling(NumOfBatchProcs / NumOfProcs),
+            consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs_1);
+        false ->
+            {error, short_interval}
+    end.
 
 %% @doc Consume a message
 %% @private
@@ -539,8 +579,10 @@ defer_consume(Id, MaxInterval, MinInterval) ->
 interval(Interval, MaxInterval) when Interval < MaxInterval ->
     Interval_1 = random:uniform(MaxInterval),
     Interval_2 = case (Interval_1 < Interval) of
-                     true  -> Interval;
-                     false -> Interval_1
+                     true ->
+                         Interval;
+                     false ->
+                         Interval_1
                  end,
     Interval_2;
 interval(Interval,_) ->
@@ -571,11 +613,10 @@ incr_interval_fun(Interval, MaxInterval, StepInterval) ->
                               StepInterval::non_neg_integer(),
                               NewInterval::non_neg_integer()).
 decr_interval_fun(Interval, StepInterval) ->
-
     Interval_1 = Interval - StepInterval,
     case (Interval_1 =< 0) of
         true ->
-            0;
+            10;
         false ->
             Interval_1
     end.
