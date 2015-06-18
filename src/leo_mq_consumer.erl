@@ -258,17 +258,16 @@ idling(#event_info{event = ?EVENT_INCR},
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs,
                                          interval = Interval}};
+%% @TODO:
 idling(#event_info{event = ?EVENT_DECR},
-       #state{mq_properties = #mq_properties{
-                                 step_batch_of_msgs = StepBatchOfMsgs,
-                                 max_interval  = MaxInterval,
-                                 step_interval = StepInterval},
+       #state{mq_properties = MQProps,
               batch_of_msgs = BatchOfMsgs,
               interval = Interval} = State) ->
-    NextStatus = ?ST_IDLING,
-
+    #mq_properties{max_interval = MaxInterval} = MQProps,
+    {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     BatchOfMsgs_1 = decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = incr_interval_fun(Interval, MaxInterval, StepInterval),
+    NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1}};
@@ -334,13 +333,12 @@ running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
 running(#event_info{event = ?EVENT_INCR},
         #state{id = Id,
                publisher_id = PublisherId,
-               mq_properties = #mq_properties{
-                                  max_batch_of_msgs = MaxBatchOfMsgs,
-                                  step_interval = StepInterval,
-                                  step_batch_of_msgs = StepBatchOfMsgs},
+               mq_properties = MQProps,
                interval = Interval,
                batch_of_msgs = BatchOfMsgs} = State) ->
     %% Retrieving the new interval and # of batch msgs
+    #mq_properties{max_batch_of_msgs = MaxBatchOfMsgs} = MQProps,
+    {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     BatchOfMsgs_1 =
         incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
@@ -362,13 +360,12 @@ running(#event_info{event = ?EVENT_INCR},
 running(#event_info{event = ?EVENT_DECR},
         #state{id = Id,
                publisher_id = PublisherId,
-               mq_properties = #mq_properties{
-                                  step_batch_of_msgs = StepBatchOfMsgs,
-                                  step_interval = StepInterval,
-                                  max_interval = MaxInterval},
+               mq_properties = MQProps,
                batch_of_msgs = BatchOfMsgs,
                interval = Interval} = State) ->
     %% Modify the interval
+    #mq_properties{max_interval = MaxInterval} = MQProps,
+    {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     Interval_1 = Interval + StepInterval,
     Interval_2 = case (Interval_1 >= MaxInterval) of
                      true ->
@@ -431,13 +428,12 @@ suspending(#event_info{event = ?EVENT_STATE}, State) ->
 suspending(#event_info{event = ?EVENT_INCR},
            #state{id = Id,
                   publisher_id = PublisherId,
-                  mq_properties = #mq_properties{
-                                     max_batch_of_msgs  = MaxBatchOfMsgs,
-                                     step_batch_of_msgs = StepBatchOfMsgs,
-                                     step_interval = StepInterval},
+                  mq_properties = MQProps,
                   batch_of_msgs = BatchOfMsgs,
                   interval = Interval} = State) ->
     %% Modify the item
+    #mq_properties{max_batch_of_msgs = MaxBatchOfMsgs} = MQProps,
+    {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     BatchOfMsgs_1 = incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
     error_logger:info_msg("~p,~p,~p,~p~n",

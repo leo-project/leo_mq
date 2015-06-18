@@ -34,13 +34,10 @@
 -define(MQ_SUBSCRIBE_FUN,          'subscribe').
 
 -define(MQ_PROP_INTERVAL_MAX,    'interval_max').
--define(MQ_PROP_INTERVAL_MIN,    'interval_min').
 -define(MQ_PROP_INTERVAL_REG,    'interval_reg').
--define(MQ_PROP_INTERVAL_STEP,   'interval_step').
 -define(MQ_PROP_BATCH_MSGS_MAX,  'batch_of_msgs_max').
--define(MQ_PROP_BATCH_MSGS_MIN,  'batch_of_msgs_min').
 -define(MQ_PROP_BATCH_MSGS_REG,  'batch_of_msgs_reg').
--define(MQ_PROP_BATCH_MSGS_STEP, 'batch_of_msgs_step').
+-define(MQ_PROP_NUM_OF_STEPS,    'num_of_steps').
 
 -define(DEF_BACKEND_DB_PROCS, 3).
 -define(DEF_BACKEND_DB,  'bitcask').
@@ -50,21 +47,18 @@
 -define(DEF_CONSUME_MAX_INTERVAL,    1000).
 -define(DEF_CONSUME_MIN_INTERVAL,     100).
 -define(DEF_CONSUME_REG_INTERVAL,     300).
--define(DEF_CONSUME_STEP_INTERVAL,    100).
 -define(DEF_CONSUME_MAX_BATCH_MSGS,    10).
 -define(DEF_CONSUME_MIN_BATCH_MSGS,     1).
 -define(DEF_CONSUME_REG_BATCH_MSGS,     5).
--define(DEF_CONSUME_STEP_BATCH_MSGS,    1).
+-define(DEF_CONSUME_NUM_OF_STEPS,       5).
 -else.
 -define(DEF_CONSUME_MAX_INTERVAL,    3000).
 -define(DEF_CONSUME_MIN_INTERVAL,     100).
 -define(DEF_CONSUME_REG_INTERVAL,     300).
--define(DEF_CONSUME_STEP_INTERVAL,    100).
 -define(DEF_CONSUME_MAX_BATCH_MSGS,  1000).
 -define(DEF_CONSUME_MIN_BATCH_MSGS,   100).
 -define(DEF_CONSUME_REG_BATCH_MSGS,   300).
--define(DEF_CONSUME_STEP_BATCH_MSGS,  100).
-
+-define(DEF_CONSUME_NUM_OF_STEPS,      10).
 -endif.
 
 -define(MQ_CNS_PROP_NUM_OF_MSGS,   'consumer_num_of_msgs').
@@ -83,14 +77,12 @@
           mqdb_path = []    :: string(),  %% mqdb's path
           %% interval between batch-procs
           max_interval = 1000    :: pos_integer(), %% max waiting time (default: 1000msec (1sec))
-          min_interval = 10      :: pos_integer(), %% min waiting time (default: 10msec)
           regular_interval = 300 :: pos_integer(), %% regular waiting time (default: 300msec)
-          step_interval = 100    :: pos_integer(), %% step waiting time (default: 100msec)
           %% num of batch procs
           max_batch_of_msgs = 1000    :: pos_integer(), %% max num of batch of messages
-          min_batch_of_msgs = 100     :: pos_integer(), %% min num of batch of messages
           regular_batch_of_msgs = 300 :: pos_integer(), %% regular num of batch of messages
-          step_batch_of_msgs = 100    :: pos_integer()  %% step num of batch of messages
+          %% num of steps
+          num_of_steps = ?DEF_CONSUME_NUM_OF_STEPS :: pos_integer()
          }).
 
 -record(mq_log, {
@@ -167,4 +159,15 @@
                           end,
             MQDBMessagePath = NewRootPath ++ ?DEF_DB_PATH_MESSAGE,
             {MQDBMessageId, MQDBMessagePath}
+        end).
+
+%% @doc Retrieve mq-consumption's step parameters
+-define(step_comsumption_values(_MQProps),
+        begin
+            #mq_properties{regular_interval = _RegInterval,
+                           regular_batch_of_msgs = _RegBatchMsgs,
+                           num_of_steps = _NumOfSteps} = _MQProps,
+            _StepBatchOfMsgs = leo_math:ceiling(_RegBatchMsgs / _NumOfSteps),
+            _StepInterval = leo_math:ceiling(_RegInterval / _NumOfSteps),
+            {ok, {_StepBatchOfMsgs,_StepInterval}}
         end).
