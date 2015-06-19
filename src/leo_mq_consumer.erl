@@ -171,23 +171,27 @@ init([Id, PublisherId,
                             worker_seq_num = WorkerSeqNum,
                             interval = Interval,
                             batch_of_msgs = BatchOfMsgs
-                           }}.
+                           }, ?DEF_TIMEOUT}.
 
 %% @doc Handle events
 handle_event(_Event, StateName, State) ->
-    {next_state, StateName, State}.
+    {next_state, StateName, State, ?DEF_TIMEOUT}.
 
 %% @doc Handle 'status' event
 handle_sync_event(state, _From, StateName, State) ->
-    {reply, {ok, StateName}, StateName, State};
+    {reply, {ok, StateName}, StateName, State, ?DEF_TIMEOUT};
 
 %% @doc Handle 'stop' event
 handle_sync_event(stop, _From, _StateName, State) ->
-    {stop, shutdown, ok, State}.
+    {stop, shutdown, ok, State, ?DEF_TIMEOUT}.
 
 %% @doc Handling all non call/cast messages
+handle_info(timeout, StateName, #state{id = Id} = State) ->
+    _ = defer_consume(
+          Id, ?DEF_CHECK_MAX_INTERVAL_1, ?DEF_CHECK_MIN_INTERVAL_1, true),
+    {next_state, StateName, State, ?DEF_TIMEOUT};
 handle_info(_Info, StateName, State) ->
-    {next_state, StateName, State}.
+    {next_state, StateName, State, ?DEF_TIMEOUT}.
 
 
 %% @doc This function is called by a gen_server when it is about to
@@ -567,25 +571,32 @@ consume(Id, Mod, NamedMqDbPid, NumOfBatchProcs) ->
 -spec(defer_consume(atom(), pos_integer(), integer()) ->
              {ok, timer:tref()} | {error,_}).
 defer_consume(Id, MaxInterval, MinInterval) ->
-    Time = interval(MinInterval, MaxInterval),
+    defer_consume(Id, MaxInterval, MinInterval, false).
+
+-spec(defer_consume(atom(), pos_integer(), integer(), boolean()) ->
+             {ok, timer:tref()} | {error,_}).
+defer_consume(Id, MaxInterval, MinInterval,_FromHandleInfo) ->
+    Time = interval(Id, MinInterval, MaxInterval),
     timer:apply_after(Time, ?MODULE, run, [Id]).
 
 
 %% @doc Retrieve interval of the waiting proc
 %% @private
--spec(interval(Interval, MaxInterval) ->
-             Interval when Interval::non_neg_integer(),
+-spec(interval(Id, Interval, MaxInterval) ->
+             Interval when Id::atom(),
+                           Interval::non_neg_integer(),
                            MaxInterval::non_neg_integer()).
-interval(Interval, MaxInterval) when Interval < MaxInterval ->
-    Interval_1 = random:uniform(MaxInterval),
-    Interval_2 = case (Interval_1 < Interval) of
+interval(Id, Interval, MaxInterval) when Interval < MaxInterval ->
+    Interval_1 = erlang:phash2(Id, MaxInterval),
+    Interval_2 = erlang:round((Interval_1 + random:uniform(MaxInterval))/2),
+    Interval_3 = case (Interval_2 < Interval) of
                      true ->
-                         Interval;
+                         Interval + erlang:phash2(Id, Interval);
                      false ->
-                         Interval_1
+                         Interval_2
                  end,
-    Interval_2;
-interval(Interval,_) ->
+    Interval_3;
+interval(_,Interval,_) ->
     Interval.
 
 
