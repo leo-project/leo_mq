@@ -84,7 +84,6 @@ new(RefSup, Id, Props) ->
 prop_list_to_mq_properties(Id, Mod, Props) ->
     Props_1 = #mq_properties{
                  publisher_id = Id,
-                 consumer_id  = ?consumer_id(Id, 1),
                  mod_callback = leo_misc:get_value(?MQ_PROP_MOD,       Props, Mod),
                  db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,   Props, ?DEF_BACKEND_DB),
                  db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,  Props, ?DEF_BACKEND_DB_PROCS),

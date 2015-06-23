@@ -136,7 +136,8 @@
 
 -define(consumer_id(_PubId, SeqNo),
         list_to_atom(
-          lists:append([atom_to_list(_PubId), ?DEF_CONSUMER_SUFFIX, integer_to_list(SeqNo)]))).
+          lists:append([atom_to_list(_PubId), ?DEF_CONSUMER_SUFFIX,
+                        "_", integer_to_list(SeqNo)]))).
 
 -define(publisher_id(_ConsumerId),
         begin

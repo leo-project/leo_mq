@@ -51,7 +51,7 @@
 -define(CURRENT_TIME, leo_date:now()).
 -endif.
 
--define(DEF_TIMEOUT, 30000).
+-define(DEF_TIMEOUT, timer:seconds(10)).
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MIN,  5000).
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MAX, 10000).
 
@@ -139,7 +139,7 @@ init([Id, #mq_properties{db_name   = DBName,
             Count = 0,
             {ok, #state{id = Id,
                         mq_properties = MQProps,
-                        count = Count}};
+                        count = Count}, ?DEF_TIMEOUT};
         _Error ->
             {stop, 'not_initialized'}
     end.
@@ -148,7 +148,7 @@ init([Id, #mq_properties{db_name   = DBName,
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
 handle_call({publish, KeyBin, MessageBin}, _From, State) ->
     Reply = put_message(KeyBin, MessageBin, State),
-    {reply, Reply, State};
+    {reply, Reply, State, ?DEF_TIMEOUT};
 
 handle_call(status, _From, #state{mq_properties = MQProps,
                                   consumer_status = ConsumerStatus,
@@ -165,12 +165,12 @@ handle_call(status, _From, #state{mq_properties = MQProps,
                   {?MQ_CNS_PROP_STATUS, ConsumerStatus},
                   {?MQ_CNS_PROP_BATCH_OF_MSGS, BatchOfMsgs},
                   {?MQ_CNS_PROP_INTERVAL, Interval}
-                 ]}, State};
+                 ]}, State, ?DEF_TIMEOUT};
 
 handle_call(close, _From, #state{mq_properties = MQProps} = State) ->
     MQDBMessageId = MQProps#mq_properties.mqdb_id,
     ok = close_db(MQDBMessageId),
-    {reply, ok, State};
+    {reply, ok, State, ?DEF_TIMEOUT};
 
 handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State}.
@@ -180,14 +180,20 @@ handle_call(stop, _From, State) ->
 handle_cast({update_consumer_stats, CnsStatus, CnsBatchOfMsgs, CnsIntervalBetweenBatchProcs}, State) ->
     {noreply, State#state{consumer_status = CnsStatus,
                           consumer_batch_of_msgs = CnsBatchOfMsgs,
-                          consumer_interval = CnsIntervalBetweenBatchProcs}};
+                          consumer_interval = CnsIntervalBetweenBatchProcs}, ?DEF_TIMEOUT};
 handle_cast(_Msg, State) ->
-    {noreply, State}.
+    {noreply, State, ?DEF_TIMEOUT}.
 
 
 %% @doc gen_server callback - Module:handle_info(Info, State) -> Result
+handle_info(timeout, #state{mq_properties = MqProps} = State) ->
+    #mq_properties{publisher_id = PublisherId,
+                   db_procs = DbProcs} = MqProps,
+    [leo_mq_consumer:run(CId) ||
+        CId <- [?consumer_id(PublisherId, N) || N <- lists:seq(1, DbProcs)]],
+    {noreply, State, ?DEF_TIMEOUT};
 handle_info(_Info, State) ->
-    {noreply, State}.
+    {noreply, State, ?DEF_TIMEOUT}.
 
 
 %% @doc This function is called by a gen_server when it is about to

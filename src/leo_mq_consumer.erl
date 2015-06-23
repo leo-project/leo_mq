@@ -58,7 +58,7 @@
         ]).
 
 -compile(nowarn_deprecated_type).
--define(DEF_TIMEOUT, timer:seconds(60)).
+-define(DEF_TIMEOUT, timer:seconds(5)).
 
 -record(event_info, {
           id :: atom(),
@@ -160,6 +160,12 @@ init([Id, PublisherId,
       #mq_properties{mqdb_id = MqDbId,
                      regular_interval = Interval,
                      regular_batch_of_msgs = BatchOfMsgs} = Props, WorkerSeqNum]) ->
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "init/1"},
+                           {line, ?LINE}, {body, [{id, Id},
+                                                  {publisher_id, PublisherId},
+                                                  {interval, Interval},
+                                                  {batch_of_msgs, BatchOfMsgs}]}]),
     _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_1, ?DEF_CHECK_MIN_INTERVAL_1),
     NamedPid = list_to_atom(atom_to_list(MqDbId)
                             ++ "_"
@@ -187,8 +193,11 @@ handle_sync_event(stop, _From, _StateName, State) ->
 
 %% @doc Handling all non call/cast messages
 handle_info(timeout, StateName, #state{id = Id} = State) ->
-    _ = defer_consume(
-          Id, ?DEF_CHECK_MAX_INTERVAL_1, ?DEF_CHECK_MIN_INTERVAL_1, true),
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "handle_info/3"},
+                           {line, ?LINE}, {body, [{id, Id},
+                                                  {cause, timeout}]}]),
+    erlang:apply(?MODULE, run, [Id]),
     {next_state, StateName, State, ?DEF_TIMEOUT};
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State, ?DEF_TIMEOUT}.
@@ -233,15 +242,15 @@ idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id,
     gen_fsm:reply(From, ok),
     ok = run(Id),
     ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State_1};
+    {next_state, NextStatus, State_1, ?DEF_TIMEOUT};
 idling(#event_info{event = ?EVENT_STATE}, From, State) ->
     NextStatus = ?ST_IDLING,
     gen_fsm:reply(From, {ok, NextStatus}),
-    {next_state, NextStatus, State};
+    {next_state, NextStatus, State, ?DEF_TIMEOUT};
 idling(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT}.
 
 -spec(idling(EventInfo, State) ->
              {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
@@ -253,7 +262,7 @@ idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
     ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
 
 idling(#event_info{event = ?EVENT_INCR},
        #state{mq_properties = #mq_properties{regular_batch_of_msgs = BatchOfMsgs,
@@ -261,8 +270,8 @@ idling(#event_info{event = ?EVENT_INCR},
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs,
-                                         interval = Interval}};
-%% @TODO:
+                                         interval = Interval}, ?DEF_TIMEOUT};
+
 idling(#event_info{event = ?EVENT_DECR},
        #state{mq_properties = MQProps,
               batch_of_msgs = BatchOfMsgs,
@@ -274,10 +283,10 @@ idling(#event_info{event = ?EVENT_DECR},
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
-                                         interval = Interval_1}};
+                                         interval = Interval_1}, ?DEF_TIMEOUT};
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT}.
 
 
 %% @doc State of 'running'
@@ -314,7 +323,8 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING,  State_1};
             {error, short_interval} ->
-                {?ST_RUNNING,  State};
+                {_,State_1} = after_execute(ok, State),
+                {?ST_RUNNING,  State_1};
             %% An epected error has occured
             {error, Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
@@ -324,14 +334,14 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
     ok = leo_mq_publisher:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State_2#state{status = NextStatus,
-                                           prev_proc_time = leo_date:clock()}};
+                                           prev_proc_time = leo_date:clock()}, ?DEF_TIMEOUT};
 
 running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
                                                     batch_of_msgs = BatchOfMsgs,
                                                     interval = Interval} = State) ->
     NextStatus = ?ST_SUSPENDING,
     ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
 
 
 running(#event_info{event = ?EVENT_INCR},
@@ -359,7 +369,7 @@ running(#event_info{event = ?EVENT_INCR},
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
-                                         interval = Interval_1}};
+                                         interval = Interval_1}, ?DEF_TIMEOUT};
 
 running(#event_info{event = ?EVENT_DECR},
         #state{id = Id,
@@ -398,22 +408,22 @@ running(#event_info{event = ?EVENT_DECR},
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_2),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_2,
-                                         status = NextStatus}};
+                                         status = NextStatus}, ?DEF_TIMEOUT};
 
 running(_, State) ->
     NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT}.
 
 -spec(running( _, _, #state{}) ->
              {next_state, ?ST_RUNNING, #state{}}).
 running(#event_info{event = ?EVENT_STATE}, From, State) ->
     NextStatus = ?ST_RUNNING,
     gen_fsm:reply(From, {ok, NextStatus}),
-    {next_state, NextStatus, State};
+    {next_state, NextStatus, State, ?DEF_TIMEOUT};
 running(_, From, State) ->
     NextStatus = ?ST_RUNNING,
     gen_fsm:reply(From, {error, badstate}),
-    {next_state, NextStatus, State}.
+    {next_state, NextStatus, State, ?DEF_TIMEOUT}.
 
 
 %% @doc State of 'suspend'
@@ -423,11 +433,11 @@ running(_, From, State) ->
                                                       State::#state{}).
 suspending(#event_info{event = ?EVENT_RUN}, State) ->
     NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
 
 suspending(#event_info{event = ?EVENT_STATE}, State) ->
     NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
 
 suspending(#event_info{event = ?EVENT_INCR},
            #state{id = Id,
@@ -453,10 +463,10 @@ suspending(#event_info{event = ?EVENT_INCR},
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
-                                         interval = Interval_1}};
+                                         interval = Interval_1}, ?DEF_TIMEOUT};
 suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT}.
 
 -spec(suspending(EventInfo, From, State) ->
              {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State} when EventInfo::#event_info{},
@@ -470,15 +480,15 @@ suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
     ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
 suspending(#event_info{event = ?EVENT_STATE}, From, State) ->
     NextStatus = ?ST_SUSPENDING,
     gen_fsm:reply(From, {ok, NextStatus}),
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
 suspending(_Other, From, State) ->
     NextStatus = ?ST_SUSPENDING,
     gen_fsm:reply(From, {error, badstate}),
-    {next_state, NextStatus, State}.
+    {next_state, NextStatus, State, ?DEF_TIMEOUT}.
 
 
 %%--------------------------------------------------------------------
@@ -542,7 +552,10 @@ consume(Id, Mod, NamedMqDbPid, NumOfBatchProcs) ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
                                             {function, "consume/4"},
-                                            {line, ?LINE}, {body, Reason}])
+                                            {line, ?LINE}, {body, [{module, Mod},
+                                                                   {id, Id},
+                                                                   {cause, Reason}
+                                                                  ]}])
             after
                 %% Remove the message
                 %% and then retrieve the next message
