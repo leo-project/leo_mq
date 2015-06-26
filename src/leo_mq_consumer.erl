@@ -380,13 +380,7 @@ running(#event_info{event = ?EVENT_DECR},
     %% Modify the interval
     #mq_properties{max_interval = MaxInterval} = MQProps,
     {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
-    Interval_1 = Interval + StepInterval,
-    Interval_2 = case (Interval_1 >= MaxInterval) of
-                     true ->
-                         MaxInterval;
-                     false ->
-                         Interval_1
-                 end,
+    Interval_1 = incr_interval_fun(Interval, MaxInterval, StepInterval),
 
     %% Modify the items
     {NextStatus, BatchOfMsgs_1} =
@@ -402,12 +396,12 @@ running(#event_info{event = ?EVENT_DECR},
                           [{module, ?MODULE_STRING}, {function, "running/2 - event_decr"},
                            {line, ?LINE}, {body, [{id, Id},
                                                   {batch_of_msgs, BatchOfMsgs_1},
-                                                  {interval, Interval_2}
+                                                  {interval, Interval_1}
                                                  ]}]),
     ok = leo_mq_publisher:update_consumer_stats(
-           PublisherId, NextStatus, BatchOfMsgs_1, Interval_2),
+           PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
-                                         interval = Interval_2,
+                                         interval = Interval_1,
                                          status = NextStatus}, ?DEF_TIMEOUT};
 
 running(_, State) ->
@@ -640,7 +634,7 @@ decr_interval_fun(Interval, StepInterval) ->
     Interval_1 = Interval - StepInterval,
     case (Interval_1 =< 0) of
         true ->
-            10;
+            100;
         false ->
             Interval_1
     end.
