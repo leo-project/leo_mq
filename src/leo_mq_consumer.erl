@@ -237,20 +237,18 @@ idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id,
                                                      batch_of_msgs = BatchOfMsgs,
                                                      interval = Interval} = State) ->
     NextStatus = ?ST_RUNNING,
-    State_1 = State#state{status = NextStatus,
+    State_1 = State#state{status = ?ST_IDLING,
                           start_datetime = leo_date:now()},
     gen_fsm:reply(From, ok),
     ok = run(Id),
     ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State_1, ?DEF_TIMEOUT};
-idling(#event_info{event = ?EVENT_STATE}, From, State) ->
-    NextStatus = ?ST_IDLING,
-    gen_fsm:reply(From, {ok, NextStatus}),
-    {next_state, NextStatus, State, ?DEF_TIMEOUT};
+idling(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
+    gen_fsm:reply(From, {ok, Status}),
+    {next_state, ?ST_IDLING, State#state{status = Status}, ?DEF_TIMEOUT};
 idling(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT}.
+    {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING}, ?DEF_TIMEOUT}.
 
 -spec(idling(EventInfo, State) ->
              {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
@@ -262,7 +260,7 @@ idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
     ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
+    {next_state, NextStatus, State#state{status = ?ST_IDLING}, ?DEF_TIMEOUT};
 
 idling(#event_info{event = ?EVENT_INCR},
        #state{mq_properties = #mq_properties{regular_batch_of_msgs = BatchOfMsgs,
@@ -280,13 +278,11 @@ idling(#event_info{event = ?EVENT_DECR},
     {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     BatchOfMsgs_1 = decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = incr_interval_fun(Interval, MaxInterval, StepInterval),
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus,
+    {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING,
                                          batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1}, ?DEF_TIMEOUT};
 idling(_, State) ->
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT}.
+    {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING}, ?DEF_TIMEOUT}.
 
 
 %% @doc State of 'running'
@@ -380,13 +376,7 @@ running(#event_info{event = ?EVENT_DECR},
     %% Modify the interval
     #mq_properties{max_interval = MaxInterval} = MQProps,
     {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
-    Interval_1 = Interval + StepInterval,
-    Interval_2 = case (Interval_1 >= MaxInterval) of
-                     true ->
-                         MaxInterval;
-                     false ->
-                         Interval_1
-                 end,
+    Interval_1 = incr_interval_fun(Interval, MaxInterval, StepInterval),
 
     %% Modify the items
     {NextStatus, BatchOfMsgs_1} =
@@ -402,28 +392,25 @@ running(#event_info{event = ?EVENT_DECR},
                           [{module, ?MODULE_STRING}, {function, "running/2 - event_decr"},
                            {line, ?LINE}, {body, [{id, Id},
                                                   {batch_of_msgs, BatchOfMsgs_1},
-                                                  {interval, Interval_2}
+                                                  {interval, Interval_1}
                                                  ]}]),
     ok = leo_mq_publisher:update_consumer_stats(
-           PublisherId, NextStatus, BatchOfMsgs_1, Interval_2),
+           PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
-                                         interval = Interval_2,
+                                         interval = Interval_1,
                                          status = NextStatus}, ?DEF_TIMEOUT};
 
 running(_, State) ->
-    NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT}.
+    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}, ?DEF_TIMEOUT}.
 
 -spec(running( _, _, #state{}) ->
              {next_state, ?ST_RUNNING, #state{}}).
-running(#event_info{event = ?EVENT_STATE}, From, State) ->
-    NextStatus = ?ST_RUNNING,
-    gen_fsm:reply(From, {ok, NextStatus}),
-    {next_state, NextStatus, State, ?DEF_TIMEOUT};
+running(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
+    gen_fsm:reply(From, {ok, Status}),
+    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}, ?DEF_TIMEOUT};
 running(_, From, State) ->
-    NextStatus = ?ST_RUNNING,
     gen_fsm:reply(From, {error, badstate}),
-    {next_state, NextStatus, State, ?DEF_TIMEOUT}.
+    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}, ?DEF_TIMEOUT}.
 
 
 %% @doc State of 'suspend'
@@ -432,12 +419,10 @@ running(_, From, State) ->
              {next_state, ?ST_SUSPENDING, State} when EventInfo::#event_info{},
                                                       State::#state{}).
 suspending(#event_info{event = ?EVENT_RUN}, State) ->
-    NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
+    {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}, ?DEF_TIMEOUT};
 
 suspending(#event_info{event = ?EVENT_STATE}, State) ->
-    NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
+    {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}, ?DEF_TIMEOUT};
 
 suspending(#event_info{event = ?EVENT_INCR},
            #state{id = Id,
@@ -465,8 +450,7 @@ suspending(#event_info{event = ?EVENT_INCR},
                                          batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1}, ?DEF_TIMEOUT};
 suspending(_, State) ->
-    NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT}.
+    {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}, ?DEF_TIMEOUT}.
 
 -spec(suspending(EventInfo, From, State) ->
              {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State} when EventInfo::#event_info{},
@@ -477,18 +461,15 @@ suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
                                                             batch_of_msgs = BatchOfMsgs,
                                                             interval = Interval} = State) ->
     gen_fsm:reply(From, ok),
-    NextStatus = ?ST_RUNNING,
     ok = run(Id),
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
-suspending(#event_info{event = ?EVENT_STATE}, From, State) ->
-    NextStatus = ?ST_SUSPENDING,
-    gen_fsm:reply(From, {ok, NextStatus}),
-    {next_state, NextStatus, State#state{status = NextStatus}, ?DEF_TIMEOUT};
+    ok = leo_mq_publisher:update_consumer_stats(PublisherId, ?ST_RUNNING, BatchOfMsgs, Interval),
+    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}, ?DEF_TIMEOUT};
+suspending(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
+    gen_fsm:reply(From, {ok, Status}),
+    {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}, ?DEF_TIMEOUT};
 suspending(_Other, From, State) ->
-    NextStatus = ?ST_SUSPENDING,
     gen_fsm:reply(From, {error, badstate}),
-    {next_state, NextStatus, State, ?DEF_TIMEOUT}.
+    {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}, ?DEF_TIMEOUT}.
 
 
 %%--------------------------------------------------------------------
@@ -640,7 +621,7 @@ decr_interval_fun(Interval, StepInterval) ->
     Interval_1 = Interval - StepInterval,
     case (Interval_1 =< 0) of
         true ->
-            10;
+            ?DEF_CONSUME_MIN_INTERVAL;
         false ->
             Interval_1
     end.
