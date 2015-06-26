@@ -634,7 +634,7 @@ decr_interval_fun(Interval, StepInterval) ->
     Interval_1 = Interval - StepInterval,
     case (Interval_1 =< 0) of
         true ->
-            100;
+            ?DEF_CONSUME_MIN_INTERVAL;
         false ->
             Interval_1
     end.
