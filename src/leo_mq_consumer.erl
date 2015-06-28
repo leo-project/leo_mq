@@ -619,7 +619,7 @@ incr_interval_fun(Interval, MaxInterval, StepInterval) ->
                               NewInterval::non_neg_integer()).
 decr_interval_fun(Interval, StepInterval) ->
     Interval_1 = Interval - StepInterval,
-    case (Interval_1 =< 0) of
+    case (Interval_1 < ?DEF_CONSUME_MIN_INTERVAL) of
         true ->
             ?DEF_CONSUME_MIN_INTERVAL;
         false ->
