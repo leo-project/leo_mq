@@ -189,7 +189,7 @@ handle_cast(_Msg, State) ->
 handle_info(timeout, #state{mq_properties = MqProps} = State) ->
     #mq_properties{publisher_id = PublisherId,
                    db_procs = DbProcs} = MqProps,
-    [leo_mq_consumer:run(CId) ||
+    [leo_mq_consumer:run(CId, true) ||
         CId <- [?consumer_id(PublisherId, N) || N <- lists:seq(1, DbProcs)]],
     {noreply, State, ?DEF_TIMEOUT};
 handle_info(_Info, State) ->
