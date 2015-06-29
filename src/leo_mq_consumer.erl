@@ -458,9 +458,18 @@ suspending(_Other, From, State) ->
 %%--------------------------------------------------------------------
 %% @doc after processing of consumption messages
 %% @private
-after_execute(Ret, #state{id = Id} = State) ->
-    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
-                      ?DEF_CHECK_MIN_INTERVAL_2),
+after_execute(Ret, #state{id = Id,
+                          interval = Interval,
+                          prev_proc_time = PrevProcTime} = State) ->
+    ThisTime = leo_date:clock(),
+    Diff = erlang:round((ThisTime - PrevProcTime) / 1000),
+    case (Diff > Interval) of
+        true ->
+            _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
+                              ?DEF_CHECK_MIN_INTERVAL_2);
+        false ->
+            void
+    end,
     {Ret, State}.
 
 
