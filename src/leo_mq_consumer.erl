@@ -193,10 +193,6 @@ handle_sync_event(stop, _From, _StateName, State) ->
 
 %% @doc Handling all non call/cast messages
 handle_info(timeout, StateName, #state{id = Id} = State) ->
-    error_logger:info_msg("~p,~p,~p,~p~n",
-                          [{module, ?MODULE_STRING}, {function, "handle_info/3"},
-                           {line, ?LINE}, {body, [{id, Id},
-                                                  {cause, timeout}]}]),
     erlang:apply(?MODULE, run, [Id]),
     {next_state, StateName, State, ?DEF_TIMEOUT};
 handle_info(_Info, StateName, State) ->
@@ -352,12 +348,7 @@ running(#event_info{event = ?EVENT_INCR},
     BatchOfMsgs_1 =
         incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
-    error_logger:info_msg("~p,~p,~p,~p~n",
-                          [{module, ?MODULE_STRING}, {function, "running/2 - event_incr"},
-                           {line, ?LINE}, {body, [{id, Id},
-                                                  {batch_of_msgs, BatchOfMsgs_1},
-                                                  {interval, Interval_1}
-                                                 ]}]),
+
     %% Modify the items
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
@@ -388,12 +379,7 @@ running(#event_info{event = ?EVENT_DECR},
                 {?ST_RUNNING,
                  decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs)}
         end,
-    error_logger:info_msg("~p,~p,~p,~p~n",
-                          [{module, ?MODULE_STRING}, {function, "running/2 - event_decr"},
-                           {line, ?LINE}, {body, [{id, Id},
-                                                  {batch_of_msgs, BatchOfMsgs_1},
-                                                  {interval, Interval_1}
-                                                 ]}]),
+
     ok = leo_mq_publisher:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
@@ -435,12 +421,7 @@ suspending(#event_info{event = ?EVENT_INCR},
     {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     BatchOfMsgs_1 = incr_batch_procs_fun(BatchOfMsgs, MaxBatchOfMsgs, StepBatchOfMsgs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
-    error_logger:info_msg("~p,~p,~p,~p~n",
-                          [{module, ?MODULE_STRING}, {function, "suspending/2 - event_incr"},
-                           {line, ?LINE}, {body, [{id, Id},
-                                                  {batch_of_msgs, BatchOfMsgs_1},
-                                                  {interval, Interval_1}
-                                                 ]}]),
+
     %% To the next status
     timer:apply_after(timer:seconds(1), ?MODULE, run, [Id]),
     NextStatus = ?ST_RUNNING,
