@@ -301,6 +301,10 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                                  _ ->
                                      Interval
                              end,
+                %% @pending
+                %% Interval_2 = Interval + erlang:phash2(
+                %%                           leo_date:clock(),
+                %%                           erlang:round(Interval_1/3)),
                 timer:sleep(Interval_1),
                 run(Id),
                 {?ST_RUNNING,  State#state{prev_proc_time = leo_date:clock()}};
@@ -313,7 +317,7 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING,  State_1};
             {error, short_interval} ->
-                %% {_,State_1} = after_execute(ok, State),
+                {_,_} = after_execute(ok, State),
                 {?ST_RUNNING,  State};
             %% An epected error has occured
             {error, Cause} ->
@@ -471,11 +475,12 @@ consume(#state{mq_properties = #mq_properties{
                                   mod_callback = Mod},
                named_mqdb_pid = NamedMqDbPid,
                batch_of_msgs  = NumOfBatchProcs,
+               interval = Interval,
                prev_proc_time = PrevProcTime} = _State) ->
     ThisTime = leo_date:clock(),
     Diff = erlang:round((ThisTime - PrevProcTime) / 1000),
 
-    case (Diff >= ?DEF_CONSUME_MIN_INTERVAL) of
+    case (Diff >= Interval) of
         true ->
             NumOfBatchProcs_1 = leo_math:ceiling(NumOfBatchProcs / NumOfProcs),
             consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs_1);
@@ -542,6 +547,11 @@ consume(Id, Mod, NamedMqDbPid, NumOfBatchProcs) ->
 -spec(defer_consume(atom(), pos_integer(), integer()) ->
              {ok, timer:tref()} | {error,_}).
 defer_consume(Id, MaxInterval, MinInterval) ->
+    defer_consume(Id, MaxInterval, MinInterval, false).
+
+-spec(defer_consume(atom(), pos_integer(), integer(), boolean()) ->
+             {ok, timer:tref()} | {error,_}).
+defer_consume(Id, MaxInterval, MinInterval,_FromHandleInfo) ->
     Time = interval(Id, MinInterval, MaxInterval),
     timer:apply_after(Time, ?MODULE, run, [Id]).
 
