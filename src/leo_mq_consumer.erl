@@ -301,10 +301,8 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                                  _ ->
                                      Interval
                              end,
-                Interval_2 = Interval + erlang:phash2(
-                                          leo_date:clock(),
-                                          erlang:round(Interval_1/3)),
-                timer:apply_after(Interval_2, ?MODULE, run, [Id]),
+                timer:sleep(Interval_1),
+                run(Id),
                 {?ST_RUNNING,  State};
             %% Reached end of the object-container
             not_found ->
@@ -459,11 +457,10 @@ suspending(_Other, From, State) ->
 %% @doc after processing of consumption messages
 %% @private
 after_execute(Ret, #state{id = Id,
-                          interval = Interval,
                           prev_proc_time = PrevProcTime} = State) ->
     ThisTime = leo_date:clock(),
     Diff = erlang:round((ThisTime - PrevProcTime) / 1000),
-    case (Diff > Interval) of
+    case (Diff >= ?DEF_CONSUME_MIN_INTERVAL) of
         true ->
             _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
                               ?DEF_CHECK_MIN_INTERVAL_2);
@@ -555,11 +552,6 @@ consume(Id, Mod, NamedMqDbPid, NumOfBatchProcs) ->
 -spec(defer_consume(atom(), pos_integer(), integer()) ->
              {ok, timer:tref()} | {error,_}).
 defer_consume(Id, MaxInterval, MinInterval) ->
-    defer_consume(Id, MaxInterval, MinInterval, false).
-
--spec(defer_consume(atom(), pos_integer(), integer(), boolean()) ->
-             {ok, timer:tref()} | {error,_}).
-defer_consume(Id, MaxInterval, MinInterval,_FromHandleInfo) ->
     Time = interval(Id, MinInterval, MaxInterval),
     timer:apply_after(Time, ?MODULE, run, [Id]).
 
