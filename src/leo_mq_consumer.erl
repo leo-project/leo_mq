@@ -303,7 +303,7 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                              end,
                 timer:sleep(Interval_1),
                 run(Id),
-                {?ST_RUNNING,  State};
+                {?ST_RUNNING,  State#state{prev_proc_time = leo_date:clock()}};
             %% Reached end of the object-container
             not_found ->
                 {_,State_1} = after_execute(ok, State),
@@ -313,8 +313,8 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING,  State_1};
             {error, short_interval} ->
-                {_,State_1} = after_execute(ok, State),
-                {?ST_RUNNING,  State_1};
+                %% {_,State_1} = after_execute(ok, State),
+                {?ST_RUNNING,  State};
             %% An epected error has occured
             {error, Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
@@ -323,8 +323,7 @@ running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
 
     ok = leo_mq_publisher:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State_2#state{status = NextStatus,
-                                           prev_proc_time = leo_date:clock()}, ?DEF_TIMEOUT};
+    {next_state, NextStatus, State_2#state{status = NextStatus}, ?DEF_TIMEOUT};
 
 running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
                                                     batch_of_msgs = BatchOfMsgs,
@@ -456,18 +455,10 @@ suspending(_Other, From, State) ->
 %%--------------------------------------------------------------------
 %% @doc after processing of consumption messages
 %% @private
-after_execute(Ret, #state{id = Id,
-                          prev_proc_time = PrevProcTime} = State) ->
-    ThisTime = leo_date:clock(),
-    Diff = erlang:round((ThisTime - PrevProcTime) / 1000),
-    case (Diff >= ?DEF_CONSUME_MIN_INTERVAL) of
-        true ->
-            _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
-                              ?DEF_CHECK_MIN_INTERVAL_2);
-        false ->
-            void
-    end,
-    {Ret, State}.
+after_execute(Ret, #state{id = Id} = State) ->
+    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
+                      ?DEF_CHECK_MIN_INTERVAL_2),
+    {Ret, State#state{prev_proc_time = 0}}.
 
 
 %% @doc Consume a message
@@ -480,12 +471,11 @@ consume(#state{mq_properties = #mq_properties{
                                   mod_callback = Mod},
                named_mqdb_pid = NamedMqDbPid,
                batch_of_msgs  = NumOfBatchProcs,
-               interval = Interval,
                prev_proc_time = PrevProcTime} = _State) ->
     ThisTime = leo_date:clock(),
     Diff = erlang:round((ThisTime - PrevProcTime) / 1000),
 
-    case (Diff >= Interval) of
+    case (Diff >= ?DEF_CONSUME_MIN_INTERVAL) of
         true ->
             NumOfBatchProcs_1 = leo_math:ceiling(NumOfBatchProcs / NumOfProcs),
             consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs_1);
