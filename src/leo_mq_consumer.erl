@@ -318,8 +318,9 @@ running(#event_info{event = ?EVENT_RUN,
             {'EXIT', Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING, State_1};
-            {error, short_interval} ->
-                {?ST_RUNNING, State};
+            {error, short_interval = Cause} ->
+                {_,State_1} = after_execute({error, Cause}, State),
+                {?ST_RUNNING, State_1};
             %% An epected error has occured
             {error, Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
