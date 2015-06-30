@@ -225,11 +225,11 @@ start_child_1(RefSup, #mq_properties{publisher_id = PublisherId} = Props) ->
                     permanent, 2000, worker, [leo_mq_publisher]}) of
         {ok, _Pid} ->
             ok;
-        {error, Cause} ->
+        {error,Reason} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
                                     {function, "start_child_1/3"},
-                                    {line, ?LINE}, {body, Cause}]),
+                                    {line, ?LINE}, {body, Reason}]),
             case leo_mq_sup:stop() of
                 ok ->
                     exit(invalid_launch);

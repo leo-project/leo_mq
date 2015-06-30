@@ -139,6 +139,10 @@
           lists:append([atom_to_list(_PubId), ?DEF_CONSUMER_SUFFIX,
                         "_", integer_to_list(SeqNo)]))).
 
+-define(invoker_id(_PubId),
+        list_to_atom(
+          lists:append([atom_to_list(_PubId), ?DEF_INVOKER_SUFFIX]))).
+
 -define(publisher_id(_ConsumerId),
         begin
             _StrId = atom_to_list(_ConsumerId),

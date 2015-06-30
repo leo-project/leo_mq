@@ -34,7 +34,7 @@
 
 %% API
 -export([start_link/4, stop/1]).
--export([run/1,
+-export([run/1, run/2,
          suspend/1,
          resume/1,
          state/1,
@@ -62,7 +62,8 @@
 
 -record(event_info, {
           id :: atom(),
-          event = ?EVENT_RUN :: event_of_compaction()
+          event = ?EVENT_RUN :: event_of_compaction(),
+          is_force_exec = false :: boolean()
          }).
 
 -record(state, {
@@ -110,7 +111,14 @@ stop(Id) ->
 -spec(run(Id) ->
              ok | {error, any()} when Id::atom()).
 run(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_RUN}).
+    run(Id, false).
+
+-spec(run(Id, IsForceExec) ->
+             ok | {error, any()} when Id::atom(),
+                                      IsForceExec::boolean()).
+run(Id, IsForceExec) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_RUN,
+                                       is_force_exec = IsForceExec}).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -192,8 +200,7 @@ handle_sync_event(stop, _From, _StateName, State) ->
     {stop, shutdown, ok, State, ?DEF_TIMEOUT}.
 
 %% @doc Handling all non call/cast messages
-handle_info(timeout, StateName, #state{id = Id} = State) ->
-    erlang:apply(?MODULE, run, [Id]),
+handle_info(timeout, StateName, State) ->
     {next_state, StateName, State, ?DEF_TIMEOUT};
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State, ?DEF_TIMEOUT}.
@@ -234,6 +241,7 @@ idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id,
                                                      interval = Interval} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{status = ?ST_IDLING,
+                          prev_proc_time = 0,
                           start_datetime = leo_date:now()},
     gen_fsm:reply(From, ok),
     ok = run(Id),
@@ -285,42 +293,38 @@ idling(_, State) ->
 -spec(running(EventInfo, State) ->
              {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                    State::#state{}).
-running(#event_info{event = ?EVENT_RUN}, #state{id = Id,
+running(#event_info{event = ?EVENT_RUN,
+                    is_force_exec = IsForceExec}, #state{id = Id,
                                                 publisher_id = PublisherId,
                                                 batch_of_msgs = BatchOfMsgs,
                                                 interval = Interval} = State) ->
     {NextStatus, State_2} =
-        case catch consume(State) of
+        case catch consume(State, IsForceExec) of
             %% Execute the data-compaction repeatedly
             ok ->
-                %% Set interval,
-                %% Unbalance interval w/ohter processes)
                 Interval_1 = case Interval of
                                  0 ->
                                      ?DEF_CONSUME_MIN_INTERVAL;
                                  _ ->
                                      Interval
                              end,
-                Interval_2 = Interval + erlang:phash2(
-                                          leo_date:clock(),
-                                          erlang:round(Interval_1/3)),
-                timer:apply_after(Interval_2, ?MODULE, run, [Id]),
-                {?ST_RUNNING,  State};
+                timer:apply_after(Interval_1, ?MODULE, run, [Id]),
+                {?ST_RUNNING, State};
             %% Reached end of the object-container
             not_found ->
                 {_,State_1} = after_execute(ok, State),
-                {?ST_IDLING,  State_1};
+                {?ST_IDLING, State_1};
             %% An unxepected error has occured
             {'EXIT', Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
-                {?ST_IDLING,  State_1};
-            {error, short_interval} ->
-                {_,State_1} = after_execute(ok, State),
-                {?ST_RUNNING,  State_1};
+                {?ST_IDLING, State_1};
+            {error, short_interval = Cause} ->
+                {_,State_1} = after_execute({error, Cause}, State),
+                {?ST_RUNNING, State_1};
             %% An epected error has occured
             {error, Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
-                {?ST_IDLING,  State_1}
+                {?ST_IDLING, State_1}
         end,
 
     ok = leo_mq_publisher:update_consumer_stats(
@@ -337,8 +341,7 @@ running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
 
 
 running(#event_info{event = ?EVENT_INCR},
-        #state{id = Id,
-               publisher_id = PublisherId,
+        #state{publisher_id = PublisherId,
                mq_properties = MQProps,
                interval = Interval,
                batch_of_msgs = BatchOfMsgs} = State) ->
@@ -351,7 +354,6 @@ running(#event_info{event = ?EVENT_INCR},
 
     %% Modify the items
     NextStatus = ?ST_RUNNING,
-    ok = run(Id),
     ok = leo_mq_publisher:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
@@ -359,8 +361,7 @@ running(#event_info{event = ?EVENT_INCR},
                                          interval = Interval_1}, ?DEF_TIMEOUT};
 
 running(#event_info{event = ?EVENT_DECR},
-        #state{id = Id,
-               publisher_id = PublisherId,
+        #state{publisher_id = PublisherId,
                mq_properties = MQProps,
                batch_of_msgs = BatchOfMsgs,
                interval = Interval} = State) ->
@@ -375,7 +376,6 @@ running(#event_info{event = ?EVENT_DECR},
             true ->
                 {?ST_SUSPENDING, 0};
             false ->
-                ok = run(Id),
                 {?ST_RUNNING,
                  decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs)}
         end,
@@ -458,37 +458,30 @@ suspending(_Other, From, State) ->
 %%--------------------------------------------------------------------
 %% @doc after processing of consumption messages
 %% @private
-after_execute(Ret, #state{id = Id,
-                          interval = Interval,
-                          prev_proc_time = PrevProcTime} = State) ->
-    ThisTime = leo_date:clock(),
-    Diff = erlang:round((ThisTime - PrevProcTime) / 1000),
-    case (Diff > Interval) of
-        true ->
-            _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
-                              ?DEF_CHECK_MIN_INTERVAL_2);
-        false ->
-            void
-    end,
+after_execute(Ret, #state{id = Id} = State) ->
+    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
+                      ?DEF_CHECK_MIN_INTERVAL_2),
     {Ret, State}.
 
 
 %% @doc Consume a message
 %%
--spec(consume(State) ->
-             ok | not_found | {error, any()} when State::#state{}).
+-spec(consume(State, IsForceExec) ->
+             ok | not_found | {error, any()} when State::#state{},
+                                                  IsForceExec::boolean()).
 consume(#state{mq_properties = #mq_properties{
                                   db_procs = NumOfProcs,
                                   publisher_id = PublisherId,
                                   mod_callback = Mod},
                named_mqdb_pid = NamedMqDbPid,
                batch_of_msgs  = NumOfBatchProcs,
-               interval = Interval,
-               prev_proc_time = PrevProcTime} = _State) ->
+               %% interval = Interval,
+               prev_proc_time = PrevProcTime} = _State, IsForceExec) ->
     ThisTime = leo_date:clock(),
     Diff = erlang:round((ThisTime - PrevProcTime) / 1000),
 
-    case (Diff >= Interval) of
+    case (Diff >= ?DEF_CONSUME_MIN_INTERVAL
+          orelse IsForceExec) of
         true ->
             NumOfBatchProcs_1 = leo_math:ceiling(NumOfBatchProcs / NumOfProcs),
             consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs_1);
