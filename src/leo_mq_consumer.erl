@@ -341,8 +341,7 @@ running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
 
 
 running(#event_info{event = ?EVENT_INCR},
-        #state{id = Id,
-               publisher_id = PublisherId,
+        #state{publisher_id = PublisherId,
                mq_properties = MQProps,
                interval = Interval,
                batch_of_msgs = BatchOfMsgs} = State) ->
@@ -355,7 +354,6 @@ running(#event_info{event = ?EVENT_INCR},
 
     %% Modify the items
     NextStatus = ?ST_RUNNING,
-    ok = run(Id),
     ok = leo_mq_publisher:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
@@ -363,8 +361,7 @@ running(#event_info{event = ?EVENT_INCR},
                                          interval = Interval_1}, ?DEF_TIMEOUT};
 
 running(#event_info{event = ?EVENT_DECR},
-        #state{id = Id,
-               publisher_id = PublisherId,
+        #state{publisher_id = PublisherId,
                mq_properties = MQProps,
                batch_of_msgs = BatchOfMsgs,
                interval = Interval} = State) ->
@@ -379,7 +376,6 @@ running(#event_info{event = ?EVENT_DECR},
             true ->
                 {?ST_SUSPENDING, 0};
             false ->
-                ok = run(Id),
                 {?ST_RUNNING,
                  decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs)}
         end,
