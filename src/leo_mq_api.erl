@@ -218,33 +218,13 @@ decrease(Id, Seq) ->
 %% INNTERNAL FUNCTIONS
 %%--------------------------------------------------------------------
 %% @private Start 'leo_mq_publisher'
-start_child_1(RefSup, #mq_properties{publisher_id = PublisherId,
-                                     db_procs = DBProcs} = Props) ->
+start_child_1(RefSup, #mq_properties{publisher_id = PublisherId} = Props) ->
     case supervisor:start_child(
            RefSup, {PublisherId,
                     {leo_mq_publisher, start_link, [PublisherId, Props]},
                     permanent, 2000, worker, [leo_mq_publisher]}) of
-        {ok, _Pid1} ->
-            InvokerId = ?invoker_id(PublisherId),
-            case supervisor:start_child(
-                   RefSup, {InvokerId,
-                            {leo_mq_invoker, start_link,
-                             [InvokerId, PublisherId, DBProcs, ?DEF_INVOKE_INTERVAL]},
-                            permanent, 2000, worker, [leo_mq_invoker]}) of
-                {ok, _Pid2} ->
-                    ok;
-                {error, Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "start_child_1/3"},
-                                            {line, ?LINE}, {body, Cause}]),
-                    case leo_mq_sup:stop() of
-                        ok ->
-                            exit(invalid_launch);
-                        not_started ->
-                            exit(noproc)
-                    end
-            end;
+        {ok, _Pid} ->
+            ok;
         {error,Reason} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},

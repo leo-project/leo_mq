@@ -200,8 +200,7 @@ handle_sync_event(stop, _From, _StateName, State) ->
     {stop, shutdown, ok, State, ?DEF_TIMEOUT}.
 
 %% @doc Handling all non call/cast messages
-handle_info(timeout, StateName, #state{id = Id} = State) ->
-    erlang:apply(?MODULE, run, [Id]),
+handle_info(timeout, StateName, State) ->
     {next_state, StateName, State, ?DEF_TIMEOUT};
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State, ?DEF_TIMEOUT}.
@@ -309,9 +308,8 @@ running(#event_info{event = ?EVENT_RUN,
                                  _ ->
                                      Interval
                              end,
-                timer:sleep(Interval_1),
-                run(Id),
-                {?ST_RUNNING, State#state{prev_proc_time = leo_date:clock()}};
+                timer:apply_after(Interval_1, ?MODULE, run, [Id]),
+                {?ST_RUNNING, State};
             %% Reached end of the object-container
             not_found ->
                 {_,State_1} = after_execute(ok, State),
@@ -330,7 +328,8 @@ running(#event_info{event = ?EVENT_RUN,
 
     ok = leo_mq_publisher:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State_2#state{status = NextStatus}, ?DEF_TIMEOUT};
+    {next_state, NextStatus, State_2#state{status = NextStatus,
+                                           prev_proc_time = leo_date:clock()}, ?DEF_TIMEOUT};
 
 running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
                                                     batch_of_msgs = BatchOfMsgs,
@@ -465,7 +464,7 @@ suspending(_Other, From, State) ->
 after_execute(Ret, #state{id = Id} = State) ->
     _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
                       ?DEF_CHECK_MIN_INTERVAL_2),
-    {Ret, State#state{prev_proc_time = 0}}.
+    {Ret, State}.
 
 
 %% @doc Consume a message

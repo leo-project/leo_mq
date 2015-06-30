@@ -51,7 +51,6 @@
 -define(DEF_CONSUME_MIN_BATCH_MSGS,     1).
 -define(DEF_CONSUME_REG_BATCH_MSGS,     5).
 -define(DEF_CONSUME_NUM_OF_STEPS,       5).
--define(DEF_INVOKE_INTERVAL,          500).
 -else.
 -define(DEF_CONSUME_MAX_INTERVAL,    3000).
 -define(DEF_CONSUME_MIN_INTERVAL,     100).
@@ -60,7 +59,6 @@
 -define(DEF_CONSUME_MIN_BATCH_MSGS,   100).
 -define(DEF_CONSUME_REG_BATCH_MSGS,   300).
 -define(DEF_CONSUME_NUM_OF_STEPS,      10).
--define(DEF_INVOKE_INTERVAL,         3000).
 -endif.
 
 -define(MQ_CNS_PROP_NUM_OF_MSGS,   'consumer_num_of_msgs').
@@ -135,7 +133,6 @@
 -define(DEF_CHECK_MIN_INTERVAL_2, timer:seconds(10)).
 
 -define(DEF_CONSUMER_SUFFIX, "_consumer").
--define(DEF_INVOKER_SUFFIX, "_invoker").
 
 -define(consumer_id(_PubId, SeqNo),
         list_to_atom(
