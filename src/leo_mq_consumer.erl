@@ -585,13 +585,7 @@ interval(_,Interval,_) ->
                               StepInterval::non_neg_integer(),
                               NewInterval::non_neg_integer()).
 incr_interval_fun(Interval, MaxInterval, StepInterval) ->
-    Interval_1 = Interval + StepInterval,
-    case (Interval_1 > MaxInterval) of
-        true ->
-            MaxInterval;
-        false ->
-            Interval_1
-    end.
+    erlang:min((Interval + StepInterval), MaxInterval).
 
 
 %% @doc Decrease the waiting time
@@ -601,13 +595,7 @@ incr_interval_fun(Interval, MaxInterval, StepInterval) ->
                               StepInterval::non_neg_integer(),
                               NewInterval::non_neg_integer()).
 decr_interval_fun(Interval, StepInterval) ->
-    Interval_1 = Interval - StepInterval,
-    case (Interval_1 < ?DEF_CONSUME_MIN_INTERVAL) of
-        true ->
-            ?DEF_CONSUME_MIN_INTERVAL;
-        false ->
-            Interval_1
-    end.
+    erlang:max((Interval - StepInterval), ?DEF_CONSUME_MIN_INTERVAL).
 
 
 %% @doc Increase the num of messages/batch-proccessing
@@ -618,13 +606,7 @@ decr_interval_fun(Interval, StepInterval) ->
                                 StepBatchProcs::non_neg_integer(),
                                 NewBatchProcs::non_neg_integer()).
 incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
-    BatchProcs_1 = BatchProcs + StepBatchProcs,
-    case (BatchProcs_1 > MaxBatchProcs) of
-        true  ->
-            MaxBatchProcs;
-        false ->
-            BatchProcs_1
-    end.
+    erlang:min((BatchProcs + StepBatchProcs), MaxBatchProcs).
 
 
 %% @doc decrease the num of messages/batch-proccessing
@@ -634,10 +616,4 @@ incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
                                 StepBatchProcs::non_neg_integer(),
                                 NewBatchProcs::non_neg_integer()).
 decr_batch_procs_fun(BatchProcs, StepBatchProcs) ->
-    BatchProcs_1 = BatchProcs - StepBatchProcs,
-    case (BatchProcs_1 =< 0) of
-        true ->
-            0;
-        false ->
-            BatchProcs_1
-    end.
+    erlang:max((BatchProcs - StepBatchProcs), 0).
