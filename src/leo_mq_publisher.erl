@@ -199,10 +199,13 @@ handle_info(_Info, State) ->
 %% <p>
 %% gen_server callback - Module:terminate(Reason, State)
 %% </p>
-terminate(_Reason, #state{id = Id}) ->
+terminate(_Reason, #state{id = Id,
+                          mq_properties = MQProps}) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/1"},
                            {line, ?LINE}, {body, Id}]),
+    MQDBMessageId = MQProps#mq_properties.mqdb_id,
+    ok = close_db(MQDBMessageId),
     ok.
 
 

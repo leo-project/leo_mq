@@ -147,14 +147,14 @@ state(Id) ->
 
 %% @doc Increase comsumption processing
 -spec(increase(Id) ->
-             {ok, state_of_mq()} when Id::atom()).
+             ok when Id::atom()).
 increase(Id) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR}).
 
 
 %% @doc Decrease comsumption processing
 -spec(decrease(Id) ->
-             {ok, state_of_mq()} when Id::atom()).
+             ok when Id::atom()).
 decrease(Id) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR}).
 
@@ -232,9 +232,10 @@ format_status(_Opt, [_PDict, State]) ->
 %% @doc State of 'idle'
 %%
 -spec(idling(EventInfo, From, State) ->
-             {next_state, ?ST_IDLING | ?ST_RUNNING, State} when EventInfo::#event_info{},
-                                                                From::{pid(),Tag::atom()},
-                                                                State::#state{}).
+             {next_state, ?ST_IDLING | ?ST_RUNNING, State, non_neg_integer()}
+                 when EventInfo::#event_info{},
+                      From::{pid(), atom()},
+                      State::#state{}).
 idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id,
                                                      publisher_id = PublisherId,
                                                      batch_of_msgs = BatchOfMsgs,
@@ -255,7 +256,7 @@ idling(_, From, State) ->
     {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING}, ?DEF_TIMEOUT}.
 
 -spec(idling(EventInfo, State) ->
-             {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
+             {next_state, ?ST_IDLING, State, non_neg_integer()} when EventInfo::#event_info{},
                                                   State::#state{}).
 idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                                                publisher_id = PublisherId,
@@ -291,8 +292,9 @@ idling(_, State) ->
 
 %% @doc State of 'running'
 -spec(running(EventInfo, State) ->
-             {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
-                                                   State::#state{}).
+             {next_state, ?ST_RUNNING, State, non_neg_integer()}
+                 when EventInfo::#event_info{},
+                      State::#state{}).
 running(#event_info{event = ?EVENT_RUN,
                     is_force_exec = IsForceExec}, #state{id = Id,
                                                 publisher_id = PublisherId,
@@ -390,7 +392,7 @@ running(_, State) ->
     {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}, ?DEF_TIMEOUT}.
 
 -spec(running( _, _, #state{}) ->
-             {next_state, ?ST_RUNNING, #state{}}).
+             {next_state, ?ST_RUNNING, #state{}, non_neg_integer()}).
 running(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
     gen_fsm:reply(From, {ok, Status}),
     {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}, ?DEF_TIMEOUT};
@@ -402,8 +404,9 @@ running(_, From, State) ->
 %% @doc State of 'suspend'
 %%
 -spec(suspending(EventInfo, State) ->
-             {next_state, ?ST_SUSPENDING, State} when EventInfo::#event_info{},
-                                                      State::#state{}).
+             {next_state, ?ST_SUSPENDING, State, non_neg_integer()}
+                 when EventInfo::#event_info{},
+                      State::#state{}).
 suspending(#event_info{event = ?EVENT_RUN}, State) ->
     {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}, ?DEF_TIMEOUT};
 
@@ -434,9 +437,10 @@ suspending(_, State) ->
     {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}, ?DEF_TIMEOUT}.
 
 -spec(suspending(EventInfo, From, State) ->
-             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State} when EventInfo::#event_info{},
-                                                                    From::{pid(),Tag::atom()},
-                                                                    State::#state{}).
+             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State, non_neg_integer()}
+                 when EventInfo::#event_info{},
+                      From::{pid(),Tag::atom()},
+                      State::#state{}).
 suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
                                                             publisher_id = PublisherId,
                                                             batch_of_msgs = BatchOfMsgs,
