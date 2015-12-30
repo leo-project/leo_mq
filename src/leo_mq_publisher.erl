@@ -26,8 +26,6 @@
 %%======================================================================
 -module(leo_mq_publisher).
 
--author('Yosuke Hara').
-
 -behaviour(gen_server).
 
 -include("leo_mq.hrl").
@@ -43,7 +41,8 @@
          terminate/2,
          code_change/3]).
 
--export([publish/3, status/1, update_consumer_stats/4, close/1]).
+-export([publish/3, dequeue/2,
+         status/1, update_consumer_stats/4, close/1]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -94,6 +93,12 @@ publish(Id, KeyBin, MessageBin) ->
     gen_server:call(Id, {publish, KeyBin, MessageBin}, ?DEF_TIMEOUT).
 
 
+%% @doc Register a queuing data.
+%%
+dequeue(Id, NamedMqDbPid) ->
+    gen_server:call(Id, {dequeue, NamedMqDbPid}, ?DEF_TIMEOUT).
+
+
 %% @doc Retrieve the current state from the queue.
 %%
 -spec(status(Id) ->
@@ -129,13 +134,12 @@ init([Id, #mq_properties{db_name   = DBName,
                          db_procs  = DBProcs,
                          mqdb_id   = MQDBMessageId,
                          mqdb_path = MQDBMessagePath} = MQProps]) ->
-
     case application:get_env(leo_mq, backend_db_sup_ref) of
         {ok, Pid} ->
             ok = leo_backend_db_sup:start_child(
                    Pid, MQDBMessageId,
                    DBProcs, DBName, MQDBMessagePath),
-            %% @TODO: Retrieve total num of message from the backend-db
+            %% @TODO: Retrieve total num of message from the local mq's file
             Count = 0,
             {ok, #state{id = Id,
                         mq_properties = MQProps,
@@ -146,21 +150,53 @@ init([Id, #mq_properties{db_name   = DBName,
 
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
-handle_call({publish, KeyBin, MessageBin}, _From, State) ->
+handle_call({publish, KeyBin, MessageBin}, _From, #state{count = Count} = State) ->
     Reply = put_message(KeyBin, MessageBin, State),
-    {reply, Reply, State, ?DEF_TIMEOUT};
+    {reply, Reply, State#state{count = Count + 1}, ?DEF_TIMEOUT};
 
-handle_call(status, _From, #state{mq_properties = MQProps,
-                                  consumer_status = ConsumerStatus,
+handle_call({dequeue, NamedMqDbPid}, _From, #state{count = Count} = State) ->
+    {Reply, Count_1} =
+        case catch leo_backend_db_server:first(NamedMqDbPid) of
+            {ok, Key, Val} ->
+                %% Taking measure of queue-msg migration
+                %% for previsous 1.2.0-pre1
+                MsgTerm = binary_to_term(Val),
+                MsgBin = case is_tuple(MsgTerm) of
+                             true when is_integer(element(1, MsgTerm)) andalso
+                                       is_binary(element(2, MsgTerm)) ->
+                                 element(2, MsgTerm);
+                             _ ->
+                                 Val
+                         end,
+
+                %% Remove the queue from the backend-db
+                case catch leo_backend_db_server:delete(NamedMqDbPid, Key) of
+                    ok when Count > 0 ->
+                        {{ok, MsgBin}, Count - 1};
+                    ok ->
+                        {{ok, MsgBin}, Count};
+                    {_, Why} ->
+                        error_logger:error_msg("~p,~p,~p,~p~n",
+                                               [{module, ?MODULE_STRING},
+                                                {function, "handle_call/3"},
+                                                {line, ?LINE}, {body, Why}]),
+                        {{error, Why}, Count}
+                end;
+            not_found = Cause ->
+                {Cause, Count};
+            {_, Cause} ->
+                error_logger:error_msg("~p,~p,~p,~p~n",
+                                       [{module, ?MODULE_STRING},
+                                        {function, "handle_call/3"},
+                                        {line, ?LINE}, {body, Cause}]),
+                {{error, Cause}, Count}
+        end,
+    {reply, Reply, State#state{count = Count_1}, ?DEF_TIMEOUT};
+
+handle_call(status, _From, #state{consumer_status = ConsumerStatus,
                                   consumer_batch_of_msgs = BatchOfMsgs,
-                                  consumer_interval = Interval} = State) ->
-    MQDBMessageId = MQProps#mq_properties.mqdb_id,
-    Res = leo_backend_db_api:status(MQDBMessageId),
-    Count = lists:foldl(fun([{key_count, KC}, _], Acc) ->
-                                Acc + KC;
-                           (_, Acc) ->
-                                Acc
-                        end, 0, Res),
+                                  consumer_interval = Interval,
+                                  count = Count} = State) ->
     {reply, {ok, [{?MQ_CNS_PROP_NUM_OF_MSGS, Count},
                   {?MQ_CNS_PROP_STATUS, ConsumerStatus},
                   {?MQ_CNS_PROP_BATCH_OF_MSGS, BatchOfMsgs},
@@ -227,17 +263,12 @@ code_change(_OldVsn, State, _Extra) ->
 put_message(MsgKeyBin, MsgBin, #state{mq_properties = MQProps}) ->
     try
         BackendMessage = MQProps#mq_properties.mqdb_id,
-        case leo_backend_db_api:get(BackendMessage, MsgKeyBin) of
-            not_found ->
-                case leo_backend_db_api:put(
-                       BackendMessage, MsgKeyBin, MsgBin) of
-                    ok ->
-                        ok;
-                    Error ->
-                        Error
-                end;
-            _Other ->
-                ok
+        case leo_backend_db_api:put(
+               BackendMessage, MsgKeyBin, MsgBin) of
+            ok ->
+                ok;
+            Error ->
+                Error
         end
     catch
         _ : Cause ->
