@@ -26,8 +26,6 @@
 %%======================================================================
 -module(leo_mq_sup).
 
--author('Yosuke Hara').
-
 -behaviour(supervisor).
 
 -include_lib("eunit/include/eunit.hrl").

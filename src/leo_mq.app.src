@@ -29,6 +29,8 @@
   {applications, [kernel, stdlib]},
   {mod, {leo_mq_app, []}},
   {env, [{profile,    false},
-         {backend_db, 'bitcask'}]}
+         %% {backend_db, 'bitcask'},
+         {backend_db, 'leveldb'}
+        ]}
  ]
 }.

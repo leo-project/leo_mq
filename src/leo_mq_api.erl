@@ -26,8 +26,6 @@
 %%======================================================================
 -module(leo_mq_api).
 
--author('Yosuke Hara').
-
 -include("leo_mq.hrl").
 -include_lib("eunit/include/eunit.hrl").
 

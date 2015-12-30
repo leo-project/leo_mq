@@ -25,7 +25,6 @@
 %% @end
 %%====================================================================
 -module(leo_mq_api_tests).
--author('yosuke hara').
 
 -include("leo_mq.hrl").
 -include_lib("eunit/include/eunit.hrl").

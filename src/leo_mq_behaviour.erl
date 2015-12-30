@@ -26,8 +26,6 @@
 %%======================================================================
 -module(leo_mq_behaviour).
 
--author('Yosuke Hara').
-
 -callback(init() ->
                  ok | {error, any()}).
 -callback(handle_call(tuple()) ->
