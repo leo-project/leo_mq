@@ -112,7 +112,7 @@ prop_list_to_mq_properties(Id, Mod, Props) ->
                                       KeyBin::binary(),
                                       MessageBin::binary()).
 publish(Id, KeyBin, MessageBin) ->
-    leo_mq_publisher:publish(Id, KeyBin, MessageBin).
+    leo_mq_server:publish(Id, KeyBin, MessageBin).
 
 
 %% @doc Suspend consumption of messages in the queue
@@ -148,7 +148,7 @@ resume(Id, Seq) ->
 -spec(status(Id) ->
              {ok, [{atom(), any()}]} when Id::atom()).
 status(Id) ->
-    leo_mq_publisher:status(Id).
+    leo_mq_server:status(Id).
 
 
 %% @doc Retrieve registered consumers
@@ -167,7 +167,7 @@ consumers() ->
             Consumers = [ #mq_state{id = ?publisher_id(Worker)} ||
                             {Worker,_,worker,[leo_mq_consumer]} <- Children ],
             Consumers_1 = lists:map(fun(Id) ->
-                                            {ok, State} = leo_mq_publisher:status(Id),
+                                            {ok, State} = leo_mq_server:status(Id),
                                             #mq_state{id = Id, state = State}
                                     end, consumers_1(Consumers, sets:new())),
             {ok, Consumers_1}
@@ -215,12 +215,12 @@ decrease(Id, Seq) ->
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
 %%--------------------------------------------------------------------
-%% @private Start 'leo_mq_publisher'
+%% @private Start 'leo_mq_server'
 start_child_1(RefSup, #mq_properties{publisher_id = PublisherId} = Props) ->
     case supervisor:start_child(
            RefSup, {PublisherId,
-                    {leo_mq_publisher, start_link, [PublisherId, Props]},
-                    permanent, 2000, worker, [leo_mq_publisher]}) of
+                    {leo_mq_server, start_link, [PublisherId, Props]},
+                    permanent, 2000, worker, [leo_mq_server]}) of
         {ok, _Pid} ->
             ok;
         {error,Reason} ->

@@ -244,7 +244,7 @@ idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id,
                           start_datetime = leo_date:now()},
     gen_fsm:reply(From, ok),
     ok = run(Id),
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
+    ok = leo_mq_server:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State_1};
 idling(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
     gen_fsm:reply(From, {ok, Status}),
@@ -262,7 +262,7 @@ idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                                                interval = Interval} = State) ->
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
+    ok = leo_mq_server:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = ?ST_IDLING}};
 
 idling(#event_info{event = ?EVENT_INCR},
@@ -327,7 +327,7 @@ running(#event_info{event = ?EVENT_RUN,
                 {?ST_IDLING, State_1}
         end,
 
-    ok = leo_mq_publisher:update_consumer_stats(
+    ok = leo_mq_server:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State_2#state{status = NextStatus,
                                            prev_proc_time = leo_date:clock()}};
@@ -336,7 +336,7 @@ running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
                                                     batch_of_msgs = BatchOfMsgs,
                                                     interval = Interval} = State) ->
     NextStatus = ?ST_SUSPENDING,
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
+    ok = leo_mq_server:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 
@@ -354,7 +354,7 @@ running(#event_info{event = ?EVENT_INCR},
 
     %% Modify the items
     NextStatus = ?ST_RUNNING,
-    ok = leo_mq_publisher:update_consumer_stats(
+    ok = leo_mq_server:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
@@ -380,7 +380,7 @@ running(#event_info{event = ?EVENT_DECR},
                  decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs)}
         end,
 
-    ok = leo_mq_publisher:update_consumer_stats(
+    ok = leo_mq_server:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1,
@@ -426,7 +426,7 @@ suspending(#event_info{event = ?EVENT_INCR},
     %% To the next status
     timer:apply_after(timer:seconds(1), ?MODULE, run, [Id]),
     NextStatus = ?ST_RUNNING,
-    ok = leo_mq_publisher:update_consumer_stats(
+    ok = leo_mq_server:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
@@ -445,7 +445,7 @@ suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
                                                             interval = Interval} = State) ->
     gen_fsm:reply(From, ok),
     ok = run(Id),
-    ok = leo_mq_publisher:update_consumer_stats(PublisherId, ?ST_RUNNING, BatchOfMsgs, Interval),
+    ok = leo_mq_server:update_consumer_stats(PublisherId, ?ST_RUNNING, BatchOfMsgs, Interval),
     {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}};
 suspending(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
     gen_fsm:reply(From, {ok, Status}),
@@ -498,7 +498,7 @@ consume(#state{mq_properties = #mq_properties{
 consume(_Id,_,_,0) ->
     ok;
 consume(Id, Mod, NamedMqDbPid, NumOfBatchProcs) ->
-    case leo_mq_publisher:dequeue(Id, NamedMqDbPid) of
+    case leo_mq_server:dequeue(Id, NamedMqDbPid) of
         {ok, MsgBin} ->
             try
                 erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}])

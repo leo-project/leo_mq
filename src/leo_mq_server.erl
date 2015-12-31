@@ -21,10 +21,10 @@
 %% ---------------------------------------------------------------------
 %% Leo MQ - Server
 %% @doc The gen_server process for the process of a mq's publisher as part of a supervision tree
-%% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_publisher.erl
+%% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_server.erl
 %% @end
 %%======================================================================
--module(leo_mq_publisher).
+-module(leo_mq_server).
 
 -behaviour(gen_server).
 
@@ -134,7 +134,8 @@ close(Id) ->
 init([Id, #mq_properties{db_name   = DBName,
                          db_procs  = DBProcs,
                          mqdb_id   = MQDBMessageId,
-                         mqdb_path = MQDBMessagePath
+                         mqdb_path = MQDBMessagePath,
+                         root_path = RootPath
                         } = MQProps]) ->
     case application:get_env(leo_mq, backend_db_sup_ref) of
         {ok, Pid} ->
@@ -142,7 +143,7 @@ init([Id, #mq_properties{db_name   = DBName,
                    Pid, MQDBMessageId,
                    DBProcs, DBName, MQDBMessagePath),
             %% Retrieve total num of message from the local state file
-            StateFilePath = lists:append([MQDBMessagePath, "_", atom_to_list(Id)]),
+            StateFilePath = filename:join([RootPath, atom_to_list(Id)]),
             Count = case file:consult(StateFilePath) of
                         {ok, Props} ->
                             leo_misc:get_value('count', Props, 0);
@@ -302,9 +303,9 @@ put_message(MsgKeyBin, MsgBin, #state{mq_properties = MQProps}) ->
                      StateFilePath::string()).
 close_db(InstanseName, Count, StateFilePath) ->
     %% Output the current state
-    _ = leo_file:file_unconsult(StateFilePath, [{id, InstanseName},
-                                                {count, Count}
-                                               ]),
+    catch leo_file:file_unconsult(StateFilePath, [{id, InstanseName},
+                                                  {count, Count}
+                                                 ]),
     %% Close the backend-db
     case whereis(leo_backend_db_sup) of
         Pid when is_pid(Pid) ->

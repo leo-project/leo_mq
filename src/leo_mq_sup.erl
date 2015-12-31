@@ -102,7 +102,7 @@ after_proc(Error) ->
 %% @private
 close_db([]) ->
     ok;
-close_db([{Id,_Pid, worker, ['leo_mq_publisher' = Mod|_]}|T]) ->
+close_db([{Id,_Pid, worker, ['leo_mq_server' = Mod|_]}|T]) ->
     ok = Mod:close(Id),
     close_db(T);
 close_db([_|T]) ->
