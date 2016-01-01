@@ -41,7 +41,7 @@
          terminate/2,
          code_change/3]).
 
--export([publish/3, dequeue/2,
+-export([publish/3, dequeue/1,
          status/1, update_consumer_stats/4, close/1]).
 
 -ifdef(TEST).
@@ -96,8 +96,8 @@ publish(Id, KeyBin, MessageBin) ->
 
 %% @doc Register a queuing data.
 %%
-dequeue(Id, NamedMqDbPid) ->
-    gen_server:call(Id, {dequeue, NamedMqDbPid}, ?DEF_TIMEOUT).
+dequeue(Id) ->
+    gen_server:call(Id, dequeue, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve the current state from the queue.
@@ -164,10 +164,12 @@ handle_call({publish, KeyBin, MessageBin}, _From, #state{count = Count} = State)
     Reply = put_message(KeyBin, MessageBin, State),
     {reply, Reply, State#state{count = Count + 1}, ?DEF_TIMEOUT};
 
-handle_call({dequeue, NamedMqDbPid}, _From, #state{count = Count} = State) ->
+handle_call(dequeue, _From, #state{count = Count,
+                                   mq_properties = MQProps} = State) ->
+    MQDBMessageId = MQProps#mq_properties.mqdb_id,
     {Reply, Count_1} =
-        case catch leo_backend_db_server:first(NamedMqDbPid) of
-            {ok, Key, Val} ->
+        case catch leo_backend_db_api:first(MQDBMessageId) of
+            {ok, {Key, Val}} ->
                 %% Taking measure of queue-msg migration
                 %% for previsous 1.2.0-pre1
                 MsgTerm = binary_to_term(Val),
@@ -180,7 +182,7 @@ handle_call({dequeue, NamedMqDbPid}, _From, #state{count = Count} = State) ->
                          end,
 
                 %% Remove the queue from the backend-db
-                case catch leo_backend_db_server:delete(NamedMqDbPid, Key) of
+                case catch leo_backend_db_api:delete(MQDBMessageId, Key) of
                     ok when Count > 0 ->
                         {{ok, MsgBin}, Count - 1};
                     ok ->
@@ -193,7 +195,7 @@ handle_call({dequeue, NamedMqDbPid}, _From, #state{count = Count} = State) ->
                         {{error, Why}, Count}
                 end;
             not_found = Cause ->
-                {Cause, Count};
+                {Cause, 0};
             {_, Cause} ->
                 error_logger:error_msg("~p,~p,~p,~p~n",
                                        [{module, ?MODULE_STRING},
@@ -277,16 +279,16 @@ code_change(_OldVsn, State, _Extra) ->
              ok | {error, any()}).
 put_message(MsgKeyBin, MsgBin, #state{mq_properties = MQProps}) ->
     try
-        BackendMessage = MQProps#mq_properties.mqdb_id,
+        MQDBMessageId = MQProps#mq_properties.mqdb_id,
         case leo_backend_db_api:put(
-               BackendMessage, MsgKeyBin, MsgBin) of
+               MQDBMessageId, MsgKeyBin, MsgBin) of
             ok ->
                 ok;
             Error ->
                 Error
         end
     catch
-        _ : Cause ->
+        _:Cause ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
                                     {function, "put_message/3"},

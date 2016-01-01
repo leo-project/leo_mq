@@ -475,9 +475,7 @@ consume(#state{mq_properties = #mq_properties{
                                   db_procs = NumOfProcs,
                                   publisher_id = PublisherId,
                                   mod_callback = Mod},
-               named_mqdb_pid = NamedMqDbPid,
                batch_of_msgs  = NumOfBatchProcs,
-               %% interval = Interval,
                prev_proc_time = PrevProcTime} = _State, IsForceExec) ->
     ThisTime = leo_date:clock(),
     Diff = erlang:round((ThisTime - PrevProcTime) / 1000),
@@ -486,19 +484,19 @@ consume(#state{mq_properties = #mq_properties{
           orelse IsForceExec) of
         true ->
             NumOfBatchProcs_1 = leo_math:ceiling(NumOfBatchProcs / NumOfProcs),
-            consume(PublisherId, Mod, NamedMqDbPid, NumOfBatchProcs_1);
+            consume(PublisherId, Mod, NumOfBatchProcs_1);
         false ->
             {error, short_interval}
     end.
 
 %% @doc Consume a message
 %% @private
--spec(consume(atom(), atom(), atom(), non_neg_integer()) ->
+-spec(consume(atom(), atom(), non_neg_integer()) ->
              ok | not_found | {error, any()}).
-consume(_Id,_,_,0) ->
+consume(_Id,_,0) ->
     ok;
-consume(Id, Mod, NamedMqDbPid, NumOfBatchProcs) ->
-    case leo_mq_server:dequeue(Id, NamedMqDbPid) of
+consume(Id, Mod, NumOfBatchProcs) ->
+    case leo_mq_server:dequeue(Id) of
         {ok, MsgBin} ->
             try
                 erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}])
@@ -506,13 +504,13 @@ consume(Id, Mod, NamedMqDbPid, NumOfBatchProcs) ->
                 _:Reason ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
-                                            {function, "consume/4"},
+                                            {function, "consume/3"},
                                             {line, ?LINE}, {body, [{module, Mod},
                                                                    {id, Id},
                                                                    {cause, Reason}
                                                                   ]}])
             after
-                consume(Id, Mod, NamedMqDbPid, NumOfBatchProcs - 1)
+                consume(Id, Mod, NumOfBatchProcs - 1)
             end;
         Other ->
             Other
