@@ -70,7 +70,6 @@ new(RefSup, Id, Props) ->
               end,
     ok = application:set_env(leo_mq, Id, Props_1),
     ok = start_child_1(RefSup, Props_1),
-    ok = start_child_2(RefSup, Props_1, Props_1#mq_properties.db_procs),
     ok.
 
 
@@ -82,26 +81,24 @@ new(RefSup, Id, Props) ->
 prop_list_to_mq_properties(Id, Mod, Props) ->
     Props_1 = #mq_properties{
                  publisher_id = Id,
-                 mod_callback = leo_misc:get_value(?MQ_PROP_MOD,       Props, Mod),
-                 db_name      = leo_misc:get_value(?MQ_PROP_DB_NAME,   Props, ?DEF_BACKEND_DB),
-                 db_procs     = leo_misc:get_value(?MQ_PROP_DB_PROCS,  Props, ?DEF_BACKEND_DB_PROCS),
-                 root_path    = leo_misc:get_value(?MQ_PROP_ROOT_PATH, Props, ?DEF_DB_ROOT_PATH),
+                 mod_callback = leo_misc:get_value(?MQ_PROP_MOD, Props, Mod),
+                 db_name = leo_misc:get_value(?MQ_PROP_DB_NAME, Props, ?DEF_BACKEND_DB),
+                 db_procs = leo_misc:get_value(?MQ_PROP_DB_PROCS, Props, ?DEF_BACKEND_DB_PROCS),
+                 root_path = leo_misc:get_value(?MQ_PROP_ROOT_PATH, Props, ?DEF_DB_ROOT_PATH),
                  %% interval between batchs
-                 max_interval     = leo_misc:get_value(?MQ_PROP_INTERVAL_MAX, Props, ?DEF_CONSUME_MAX_INTERVAL),
+                 max_interval = leo_misc:get_value(?MQ_PROP_INTERVAL_MAX, Props, ?DEF_CONSUME_MAX_INTERVAL),
                  regular_interval = leo_misc:get_value(?MQ_PROP_INTERVAL_REG, Props, ?DEF_CONSUME_REG_INTERVAL),
                  %% batch of messages
-                 max_batch_of_msgs     = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MAX, Props, ?DEF_CONSUME_MAX_BATCH_MSGS),
+                 max_batch_of_msgs = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MAX, Props, ?DEF_CONSUME_MAX_BATCH_MSGS),
                  regular_batch_of_msgs = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_REG, Props, ?DEF_CONSUME_REG_BATCH_MSGS),
                  %% num of steps
-                 num_of_steps  = leo_misc:get_value(?MQ_PROP_NUM_OF_STEPS, Props, ?DEF_CONSUME_NUM_OF_STEPS)
-                },
+                 num_of_steps = leo_misc:get_value(?MQ_PROP_NUM_OF_STEPS, Props, ?DEF_CONSUME_NUM_OF_STEPS)},
     {MQDBMessageId,
-     MQDBMessagePath} = ?backend_db_info(Id,
-                                         Props_1#mq_properties.root_path),
+     MQDBMessagePath} = ?backend_db_info(
+                           Id, Props_1#mq_properties.root_path),
     Props_2 = Props_1#mq_properties{
-                mqdb_id   = MQDBMessageId,
-                mqdb_path = MQDBMessagePath
-               },
+                mqdb_id = MQDBMessageId,
+                mqdb_path = MQDBMessagePath},
     Props_2.
 
 
@@ -215,14 +212,16 @@ decrease(Id, Seq) ->
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
 %%--------------------------------------------------------------------
-%% @private Start 'leo_mq_server'
-start_child_1(RefSup, #mq_properties{publisher_id = PublisherId} = Props) ->
+%% @doc Start 'leo_mq_server'
+%% @private
+start_child_1(RefSup, #mq_properties{publisher_id = PublisherId,
+                                     db_procs = DbProcs} = Props) ->
     case supervisor:start_child(
            RefSup, {PublisherId,
                     {leo_mq_server, start_link, [PublisherId, Props]},
                     permanent, 2000, worker, [leo_mq_server]}) of
         {ok, _Pid} ->
-            ok;
+            start_child_2(RefSup, Props, DbProcs);
         {error,Reason} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
@@ -236,18 +235,20 @@ start_child_1(RefSup, #mq_properties{publisher_id = PublisherId} = Props) ->
             end
     end.
 
-%% @private Start 'leo_mq_fsm_controller'
-start_child_2(_RefSup, #mq_properties{publisher_id = _PublisherId} = _Props, 0) ->
+%% @doc Start 'leo_mq_consumer'
+%% @private
+start_child_2(_,_,0) ->
     ok;
 start_child_2(RefSup, #mq_properties{publisher_id = PublisherId} = Props, WorkerSeqNum) ->
     ConsumerId = ?consumer_id(PublisherId, WorkerSeqNum),
+    WorkerSeqNum_1 = WorkerSeqNum - 1,
     case supervisor:start_child(
            RefSup, {ConsumerId,
                     {leo_mq_consumer, start_link,
-                     [ConsumerId, PublisherId, Props, (WorkerSeqNum - 1)]},
+                     [ConsumerId, PublisherId, Props, WorkerSeqNum_1]},
                     permanent, 2000, worker, [leo_mq_consumer]}) of
         {ok, _Pid} ->
-            start_child_2(RefSup, Props, WorkerSeqNum - 1);
+            start_child_2(RefSup, Props, WorkerSeqNum_1);
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
