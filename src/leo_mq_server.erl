@@ -21,12 +21,10 @@
 %% ---------------------------------------------------------------------
 %% Leo MQ - Server
 %% @doc The gen_server process for the process of a mq's publisher as part of a supervision tree
-%% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_publisher.erl
+%% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_server.erl
 %% @end
 %%======================================================================
--module(leo_mq_publisher).
-
--author('Yosuke Hara').
+-module(leo_mq_server).
 
 -behaviour(gen_server).
 
@@ -43,7 +41,8 @@
          terminate/2,
          code_change/3]).
 
--export([publish/3, status/1, update_consumer_stats/4, close/1]).
+-export([publish/3, dequeue/1,
+         status/1, update_consumer_stats/4, close/1]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -59,8 +58,9 @@
                 mq_properties = #mq_properties{} :: #mq_properties{},
                 count = 0 :: non_neg_integer(),
                 consumer_status = ?ST_IDLING :: state_of_mq(),
-                consumer_batch_of_msgs = 0   :: non_neg_integer(),
-                consumer_interval = 0        :: non_neg_integer()
+                consumer_batch_of_msgs = 0 :: non_neg_integer(),
+                consumer_interval = 0 :: non_neg_integer(),
+                state_filepath = [] :: string()
                }).
 
 
@@ -92,6 +92,12 @@ stop(Id) ->
                                       MessageBin::binary()).
 publish(Id, KeyBin, MessageBin) ->
     gen_server:call(Id, {publish, KeyBin, MessageBin}, ?DEF_TIMEOUT).
+
+
+%% @doc Register a queuing data.
+%%
+dequeue(Id) ->
+    gen_server:call(Id, dequeue, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve the current state from the queue.
@@ -128,48 +134,92 @@ close(Id) ->
 init([Id, #mq_properties{db_name   = DBName,
                          db_procs  = DBProcs,
                          mqdb_id   = MQDBMessageId,
-                         mqdb_path = MQDBMessagePath} = MQProps]) ->
-
+                         mqdb_path = MQDBMessagePath,
+                         root_path = RootPath
+                        } = MQProps]) ->
     case application:get_env(leo_mq, backend_db_sup_ref) of
         {ok, Pid} ->
             ok = leo_backend_db_sup:start_child(
                    Pid, MQDBMessageId,
                    DBProcs, DBName, MQDBMessagePath),
-            %% @TODO: Retrieve total num of message from the backend-db
-            Count = 0,
+            %% Retrieve total num of message from the local state file
+            StateFilePath = filename:join([RootPath, atom_to_list(Id)]),
+            Count = case file:consult(StateFilePath) of
+                        {ok, Props} ->
+                            leo_misc:get_value('count', Props, 0);
+                        _ ->
+                            0
+                    end,
             {ok, #state{id = Id,
                         mq_properties = MQProps,
-                        count = Count}, ?DEF_TIMEOUT};
+                        count = Count,
+                        state_filepath = StateFilePath}, ?DEF_TIMEOUT};
         _Error ->
             {stop, 'not_initialized'}
     end.
 
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
-handle_call({publish, KeyBin, MessageBin}, _From, State) ->
+handle_call({publish, KeyBin, MessageBin}, _From, #state{count = Count} = State) ->
     Reply = put_message(KeyBin, MessageBin, State),
-    {reply, Reply, State, ?DEF_TIMEOUT};
+    {reply, Reply, State#state{count = Count + 1}, ?DEF_TIMEOUT};
 
-handle_call(status, _From, #state{mq_properties = MQProps,
-                                  consumer_status = ConsumerStatus,
-                                  consumer_batch_of_msgs = BatchOfMsgs,
-                                  consumer_interval = Interval} = State) ->
+handle_call(dequeue, _From, #state{count = Count,
+                                   mq_properties = MQProps} = State) ->
     MQDBMessageId = MQProps#mq_properties.mqdb_id,
-    Res = leo_backend_db_api:status(MQDBMessageId),
-    Count = lists:foldl(fun([{key_count, KC}, _], Acc) ->
-                                Acc + KC;
-                           (_, Acc) ->
-                                Acc
-                        end, 0, Res),
+    {Reply, Count_1} =
+        case catch leo_backend_db_api:first(MQDBMessageId) of
+            {ok, {Key, Val}} ->
+                %% Taking measure of queue-msg migration
+                %% for previsous 1.2.0-pre1
+                MsgTerm = binary_to_term(Val),
+                MsgBin = case is_tuple(MsgTerm) of
+                             true when is_integer(element(1, MsgTerm)) andalso
+                                       is_binary(element(2, MsgTerm)) ->
+                                 element(2, MsgTerm);
+                             _ ->
+                                 Val
+                         end,
+
+                %% Remove the queue from the backend-db
+                case catch leo_backend_db_api:delete(MQDBMessageId, Key) of
+                    ok when Count > 0 ->
+                        {{ok, MsgBin}, Count - 1};
+                    ok ->
+                        {{ok, MsgBin}, Count};
+                    {_, Why} ->
+                        error_logger:error_msg("~p,~p,~p,~p~n",
+                                               [{module, ?MODULE_STRING},
+                                                {function, "handle_call/3"},
+                                                {line, ?LINE}, {body, Why}]),
+                        {{error, Why}, Count}
+                end;
+            not_found = Cause ->
+                {Cause, 0};
+            {_, Cause} ->
+                error_logger:error_msg("~p,~p,~p,~p~n",
+                                       [{module, ?MODULE_STRING},
+                                        {function, "handle_call/3"},
+                                        {line, ?LINE}, {body, Cause}]),
+                {{error, Cause}, Count}
+        end,
+    {reply, Reply, State#state{count = Count_1}, ?DEF_TIMEOUT};
+
+handle_call(status, _From, #state{consumer_status = ConsumerStatus,
+                                  consumer_batch_of_msgs = BatchOfMsgs,
+                                  consumer_interval = Interval,
+                                  count = Count} = State) ->
     {reply, {ok, [{?MQ_CNS_PROP_NUM_OF_MSGS, Count},
                   {?MQ_CNS_PROP_STATUS, ConsumerStatus},
                   {?MQ_CNS_PROP_BATCH_OF_MSGS, BatchOfMsgs},
                   {?MQ_CNS_PROP_INTERVAL, Interval}
                  ]}, State, ?DEF_TIMEOUT};
 
-handle_call(close, _From, #state{mq_properties = MQProps} = State) ->
+handle_call(close, _From, #state{count = Count,
+                                 state_filepath = StateFilePath,
+                                 mq_properties = MQProps} = State) ->
     MQDBMessageId = MQProps#mq_properties.mqdb_id,
-    ok = close_db(MQDBMessageId),
+    ok = close_db(MQDBMessageId, Count, StateFilePath),
     {reply, ok, State, ?DEF_TIMEOUT};
 
 handle_call(stop, _From, State) ->
@@ -200,12 +250,15 @@ handle_info(_Info, State) ->
 %% gen_server callback - Module:terminate(Reason, State)
 %% </p>
 terminate(_Reason, #state{id = Id,
+                          count = Count,
+                          state_filepath = StateFilePath,
                           mq_properties = MQProps}) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/1"},
                            {line, ?LINE}, {body, Id}]),
+    %% Close the backend_db
     MQDBMessageId = MQProps#mq_properties.mqdb_id,
-    ok = close_db(MQDBMessageId),
+    ok = close_db(MQDBMessageId, Count, StateFilePath),
     ok.
 
 
@@ -226,21 +279,16 @@ code_change(_OldVsn, State, _Extra) ->
              ok | {error, any()}).
 put_message(MsgKeyBin, MsgBin, #state{mq_properties = MQProps}) ->
     try
-        BackendMessage = MQProps#mq_properties.mqdb_id,
-        case leo_backend_db_api:get(BackendMessage, MsgKeyBin) of
-            not_found ->
-                case leo_backend_db_api:put(
-                       BackendMessage, MsgKeyBin, MsgBin) of
-                    ok ->
-                        ok;
-                    Error ->
-                        Error
-                end;
-            _Other ->
-                ok
+        MQDBMessageId = MQProps#mq_properties.mqdb_id,
+        case leo_backend_db_api:put(
+               MQDBMessageId, MsgKeyBin, MsgBin) of
+            ok ->
+                ok;
+            Error ->
+                Error
         end
     catch
-        _ : Cause ->
+        _:Cause ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
                                     {function, "put_message/3"},
@@ -251,9 +299,16 @@ put_message(MsgKeyBin, MsgBin, #state{mq_properties = MQProps}) ->
 
 %% @doc Close a db
 %% @private
--spec(close_db(atom()) ->
-             ok).
-close_db(InstanseName) ->
+-spec(close_db(InstanceName, Count, StateFilePath) ->
+             ok when InstanceName::atom(),
+                     Count::non_neg_integer(),
+                     StateFilePath::string()).
+close_db(InstanseName, Count, StateFilePath) ->
+    %% Output the current state
+    catch leo_file:file_unconsult(StateFilePath, [{id, InstanseName},
+                                                  {count, Count}
+                                                 ]),
+    %% Close the backend-db
     case whereis(leo_backend_db_sup) of
         Pid when is_pid(Pid) ->
             List = supervisor:which_children(Pid),
