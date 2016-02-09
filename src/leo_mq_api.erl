@@ -109,7 +109,7 @@ prop_list_to_mq_properties(Id, Mod, Props) ->
                                       KeyBin::binary(),
                                       MessageBin::binary()).
 publish(Id, KeyBin, MessageBin) ->
-    leo_mq_server:publish(Id, KeyBin, MessageBin).
+    leo_mq_server:enqueue(Id, KeyBin, MessageBin).
 
 
 %% @doc Suspend consumption of messages in the queue
