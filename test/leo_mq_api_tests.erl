@@ -107,10 +107,12 @@ publish() ->
                         ?debugVal({publish, Id, Reply}),
                         ok
                 end),
-    Ret =  leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{module, ?TEST_CLIENT_MOD},
-                                                {root_path, Path},
-                                                {db_procs, 8},
-                                                {num_of_batch_processes, 10},
+
+    Ret =  leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{?MQ_PROP_MOD, ?TEST_CLIENT_MOD},
+                                                {?MQ_PROP_ROOT_PATH, Path},
+                                                {?MQ_PROP_DB_NAME, ?DEF_BACKEND_DB},
+                                                {?MQ_PROP_DB_PROCS, 8},
+                                                {?MQ_PROP_NUM_OF_BATCH_PROC, 10},
                                                 {max_interval, 1000},
                                                 {min_interval, 100}]),
     ?assertEqual(ok, Ret),

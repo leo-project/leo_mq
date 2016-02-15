@@ -20,12 +20,11 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo MQ - Server
-%% @doc The gen_server process for the process of a mq's publisher as part of a supervision tree
+%% @doc The gen_server process for the process of a mq's enqueue/dequeue as part of a supervision tree
 %% @reference https://github.com/leo-project/leo_mq/blob/master/src/leo_mq_server.erl
 %% @end
 %%======================================================================
 -module(leo_mq_server).
-
 -behaviour(gen_server).
 
 -include("leo_mq.hrl").
@@ -41,7 +40,7 @@
          terminate/2,
          code_change/3]).
 
--export([publish/3, dequeue/1,
+-export([enqueue/3, dequeue/1,
          status/1, update_consumer_stats/4, close/1]).
 
 -ifdef(TEST).
@@ -86,12 +85,12 @@ stop(Id) ->
 
 %% @doc Register a queuing data.
 %%
--spec(publish(Id, KeyBin, MessageBin) ->
+-spec(enqueue(Id, KeyBin, MessageBin) ->
              ok | {error, any()} when Id::atom(),
                                       KeyBin::binary(),
                                       MessageBin::binary()).
-publish(Id, KeyBin, MessageBin) ->
-    gen_server:call(Id, {publish, KeyBin, MessageBin}, ?DEF_TIMEOUT).
+enqueue(Id, KeyBin, MessageBin) ->
+    gen_server:call(Id, {enqueue, KeyBin, MessageBin}, ?DEF_TIMEOUT).
 
 
 %% @doc Register a queuing data.
@@ -160,9 +159,18 @@ init([Id, #mq_properties{db_name   = DBName,
 
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
-handle_call({publish, KeyBin, MessageBin}, _From, #state{count = Count} = State) ->
-    Reply = put_message(KeyBin, MessageBin, State),
-    {reply, Reply, State#state{count = Count + 1}, ?DEF_TIMEOUT};
+handle_call({enqueue, KeyBin, MessageBin}, _From, #state{mq_properties = MQProps,
+                                                         count = Count} = State) ->
+    MQDBMessageId = MQProps#mq_properties.mqdb_id,
+    {Reply_1, Count_1} =
+        case leo_backend_db_api:get(MQDBMessageId, KeyBin) of
+            not_found ->
+                Reply = put_message(KeyBin, MessageBin, MQDBMessageId),
+                {Reply, Count + 1};
+            _ ->
+                {ok, Count}
+        end,
+    {reply, Reply_1, State#state{count = Count_1}, ?DEF_TIMEOUT};
 
 handle_call(dequeue, _From, #state{count = Count,
                                    mq_properties = MQProps} = State) ->
@@ -275,25 +283,22 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% @doc put a message into the queue.
 %%
--spec(put_message(binary(), tuple(), #state{}) ->
-             ok | {error, any()}).
-put_message(MsgKeyBin, MsgBin, #state{mq_properties = MQProps}) ->
-    try
-        MQDBMessageId = MQProps#mq_properties.mqdb_id,
-        case leo_backend_db_api:put(
-               MQDBMessageId, MsgKeyBin, MsgBin) of
-            ok ->
-                ok;
-            Error ->
-                Error
-        end
-    catch
-        _:Cause ->
+-spec(put_message(MsgKeyBin, MsgBin, MQDBMessageId) ->
+             ok | {error, any()} when MsgKeyBin::binary(),
+                                      MsgBin::binary(),
+                                      MQDBMessageId::atom()).
+put_message(MsgKeyBin, MsgBin, MQDBMessageId) ->
+    case catch leo_backend_db_api:put(MQDBMessageId, MsgKeyBin, MsgBin) of
+        ok ->
+            ok;
+        {'EXIT', Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
                                     {function, "put_message/3"},
                                     {line, ?LINE}, {body, Cause}]),
-            {error, Cause}
+            {error, Cause};
+        Error ->
+            Error
     end.
 
 
