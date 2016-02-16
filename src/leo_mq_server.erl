@@ -138,9 +138,17 @@ init([Id, #mq_properties{db_name   = DBName,
                         } = MQProps]) ->
     case application:get_env(leo_mq, backend_db_sup_ref) of
         {ok, Pid} ->
-            ok = leo_backend_db_sup:start_child(
-                   Pid, MQDBMessageId,
-                   DBProcs, DBName, MQDBMessagePath),
+            MQDBMessageId_1 = list_to_atom(
+                                lists:append([atom_to_list(MQDBMessageId), "_0"])),
+            case erlang:whereis(MQDBMessageId_1) of
+                undefined ->
+                    leo_backend_db_sup:start_child(
+                      Pid, MQDBMessageId,
+                      DBProcs, DBName, MQDBMessagePath);
+                _ ->
+                    void
+            end,
+
             %% Retrieve total num of message from the local state file
             StateFilePath = filename:join([RootPath, atom_to_list(Id)]),
             Count = case file:consult(StateFilePath) of
