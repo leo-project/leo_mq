@@ -138,8 +138,13 @@ init([Id, #mq_properties{db_name   = DBName,
                         } = MQProps]) ->
     case application:get_env(leo_mq, backend_db_sup_ref) of
         {ok, Pid} ->
-            MQDBMessageId_1 = list_to_atom(
-                                lists:append([atom_to_list(MQDBMessageId), "_0"])),
+            MQDBMessageId_1 = case (DBProcs > 1) of
+                                  true ->
+                                      list_to_atom(
+                                        lists:append([atom_to_list(MQDBMessageId), "_0"]));
+                                  false ->
+                                      MQDBMessageId
+                              end,
             case erlang:whereis(MQDBMessageId_1) of
                 undefined ->
                     leo_backend_db_sup:start_child(
