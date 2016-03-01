@@ -136,11 +136,27 @@ init([Id, #mq_properties{db_name   = DBName,
                          mqdb_path = MQDBMessagePath,
                          root_path = RootPath
                         } = MQProps]) ->
-    case application:get_env(leo_mq, backend_db_sup_ref) of
-        {ok, Pid} ->
-            ok = leo_backend_db_sup:start_child(
-                   Pid, MQDBMessageId,
-                   DBProcs, DBName, MQDBMessagePath),
+    case erlang:whereis(leo_backend_db_sup) of
+        undefined ->
+            {stop, 'not_initialized'};
+        _ ->
+            MQDBMessageId_1 =
+                case (DBProcs > 1) of
+                    true ->
+                        list_to_atom(
+                          lists:append([atom_to_list(MQDBMessageId), "_0"]));
+                    false ->
+                        MQDBMessageId
+                end,
+            case erlang:whereis(MQDBMessageId_1) of
+                undefined ->
+                    leo_backend_db_sup:start_child(
+                      leo_backend_db_sup, MQDBMessageId,
+                      DBProcs, DBName, MQDBMessagePath);
+                _ ->
+                    void
+            end,
+
             %% Retrieve total num of message from the local state file
             StateFilePath = filename:join([RootPath, atom_to_list(Id)]),
             Count = case file:consult(StateFilePath) of
@@ -152,9 +168,7 @@ init([Id, #mq_properties{db_name   = DBName,
             {ok, #state{id = Id,
                         mq_properties = MQProps,
                         count = Count,
-                        state_filepath = StateFilePath}, ?DEF_TIMEOUT};
-        _Error ->
-            {stop, 'not_initialized'}
+                        state_filepath = StateFilePath}, ?DEF_TIMEOUT}
     end.
 
 
@@ -314,12 +328,13 @@ close_db(InstanseName, Count, StateFilePath) ->
                                                   {count, Count}
                                                  ]),
     %% Close the backend-db
-    case whereis(leo_backend_db_sup) of
-        Pid when is_pid(Pid) ->
-            List = supervisor:which_children(Pid),
-            ok = close_db(List, InstanseName),
+    SupRef = leo_backend_db_sup,
+    case erlang:whereis(SupRef) of
+        undefined ->
             ok;
-        _ ->
+        _Pid ->
+            List = supervisor:which_children(SupRef),
+            ok = close_db(List, InstanseName),
             ok
     end.
 
