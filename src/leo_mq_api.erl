@@ -36,8 +36,9 @@
          increase/1, decrease/1
         ]).
 
--define(APP_NAME,      'leo_mq').
+-define(APP_NAME, 'leo_mq').
 -define(DEF_DB_MODULE, 'leo_mq_eleveldb'). % Not used in anywhere.
+
 
 %%--------------------------------------------------------------------
 %% API
@@ -84,6 +85,7 @@ prop_list_to_mq_properties(Id, Mod, Props) ->
                  mod_callback = leo_misc:get_value(?MQ_PROP_MOD, Props, Mod),
                  db_name = leo_misc:get_value(?MQ_PROP_DB_NAME, Props, ?DEF_BACKEND_DB),
                  db_procs = leo_misc:get_value(?MQ_PROP_DB_PROCS, Props, ?DEF_BACKEND_DB_PROCS),
+                 cns_procs_per_db = leo_misc:get_value(?MQ_PROP_CNS_PROCS_PER_DB, Props, ?DEF_PROP_CNS_PROCS_PER_DB),
                  root_path = leo_misc:get_value(?MQ_PROP_ROOT_PATH, Props, ?DEF_DB_ROOT_PATH),
                  %% interval between batchs
                  max_interval = leo_misc:get_value(?MQ_PROP_INTERVAL_MAX, Props, ?DEF_CONSUME_MAX_INTERVAL),
@@ -117,13 +119,11 @@ publish(Id, KeyBin, MessageBin) ->
 -spec(suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 suspend(Id) ->
-    exec_sub_fun(Id, fun suspend/2).
-suspend(_Id, 0) ->
-    ok;
-suspend(Id, Seq) ->
-    Id_1 = ?consumer_id(Id, Seq),
-    leo_mq_consumer:suspend(Id_1),
-    suspend(Id, Seq - 1).
+    exec_sub_fun(Id, fun suspend/3).
+suspend(Id, SeqNo, SubNo) ->
+    [leo_mq_consumer:suspend(CnsId) ||
+        CnsId  <- gen_consumer_id(Id, SeqNo, SubNo, [])],
+    ok.
 
 
 %% @doc Resume consumption of messages in the queue
@@ -131,13 +131,11 @@ suspend(Id, Seq) ->
 -spec(resume(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
-    exec_sub_fun(Id, fun resume/2).
-resume(_Id, 0) ->
-    ok;
-resume(Id, Seq) ->
-    Id_1 = ?consumer_id(Id, Seq),
-    leo_mq_consumer:resume(Id_1),
-    resume(Id, Seq - 1).
+    exec_sub_fun(Id, fun resume/3).
+resume(Id, SeqNo, SubNo) ->
+    [leo_mq_consumer:resume(CnsId) ||
+        CnsId  <- gen_consumer_id(Id, SeqNo, SubNo, [])],
+    ok.
 
 
 %% @doc Retrieve a current state from the queue
@@ -182,15 +180,13 @@ consumers_1([#mq_state{id = Id}|Rest], SoFar) ->
 -spec(increase(Id) ->
              ok | {error, any()} when Id::atom()).
 increase(Id) ->
-    exec_sub_fun(Id, fun increase/2).
+    exec_sub_fun(Id, fun increase/3).
 
 %% @private
-increase(_Id, 0) ->
-    ok;
-increase(Id, Seq) ->
-    Id_1 = ?consumer_id(Id, Seq),
-    leo_mq_consumer:increase(Id_1),
-    increase(Id, Seq - 1).
+increase(Id, SeqNo, SubNo) ->
+    [leo_mq_consumer:increase(CnsId) ||
+        CnsId  <- gen_consumer_id(Id, SeqNo, SubNo, [])],
+    ok.
 
 
 %% @doc Decrease the comsumption processing
@@ -198,15 +194,13 @@ increase(Id, Seq) ->
 -spec(decrease(Id) ->
              ok | {error, any()} when Id::atom()).
 decrease(Id) ->
-    exec_sub_fun(Id, fun decrease/2).
+    exec_sub_fun(Id, fun decrease/3).
 
 %% @private
-decrease(_Id, 0) ->
-    ok;
-decrease(Id, Seq) ->
-    Id_1 = ?consumer_id(Id, Seq),
-    leo_mq_consumer:decrease(Id_1),
-    decrease(Id, Seq - 1).
+decrease(Id, SeqNo, SubNo) ->
+    [leo_mq_consumer:decrease(CnsId) ||
+        CnsId  <- gen_consumer_id(Id, SeqNo, SubNo, [])],
+    ok.
 
 
 %%--------------------------------------------------------------------
@@ -239,20 +233,32 @@ start_child_1(RefSup, #mq_properties{publisher_id = PublisherId,
 %% @private
 start_child_2(_,_,0) ->
     ok;
-start_child_2(RefSup, #mq_properties{publisher_id = PublisherId} = Props, WorkerSeqNum) ->
-    ConsumerId = ?consumer_id(PublisherId, WorkerSeqNum),
-    WorkerSeqNum_1 = WorkerSeqNum - 1,
+start_child_2(RefSup, #mq_properties{cns_procs_per_db = CnsProcsPerDB} = Props, WorkerSeqNum) ->
+    case start_child_3(RefSup, Props, WorkerSeqNum, CnsProcsPerDB) of
+        ok ->
+            start_child_2(RefSup, Props, WorkerSeqNum - 1);
+        Error ->
+            Error
+    end.
+
+%% @private
+start_child_3(_RefSup,_Props,_WorkerSeqNum, 0) ->
+    ok;
+start_child_3(RefSup, #mq_properties{publisher_id = PublisherId} = Props,
+              WorkerSeqNum, CnsProcsPerDB) ->
+    ConsumerId = ?consumer_id(PublisherId, WorkerSeqNum, CnsProcsPerDB),
+
     case supervisor:start_child(
            RefSup, {ConsumerId,
                     {leo_mq_consumer, start_link,
-                     [ConsumerId, PublisherId, Props, WorkerSeqNum_1]},
+                     [ConsumerId, PublisherId, Props, (WorkerSeqNum - 1)]},
                     permanent, 2000, worker, [leo_mq_consumer]}) of
         {ok, _Pid} ->
-            start_child_2(RefSup, Props, WorkerSeqNum_1);
+            start_child_3(RefSup, Props, WorkerSeqNum, (CnsProcsPerDB - 1));
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
-                                    {function, "start_child_2/3"},
+                                    {function, "start_child_3/4"},
                                     {line, ?LINE}, {body, Cause}]),
             case leo_mq_sup:stop() of
                 ok ->
@@ -266,8 +272,25 @@ start_child_2(RefSup, #mq_properties{publisher_id = PublisherId} = Props, Worker
 %% @private
 exec_sub_fun(Id, Fun) ->
     case application:get_env(leo_mq, Id) of
-        {ok, #mq_properties{db_procs = NumOfDbProcs}} ->
-            Fun(Id, NumOfDbProcs);
+        {ok, #mq_properties{db_procs = NumOfDbProcs,
+                            cns_procs_per_db = CnsProcsPerDb}} ->
+            Fun(Id, NumOfDbProcs, CnsProcsPerDb);
         _ ->
             {error, not_initialized}
     end.
+
+
+%% @doc Generate consumer-id's list
+%% @privare
+gen_consumer_id(_, 0,_, Acc) ->
+    lists:reverse(Acc);
+gen_consumer_id(Id, SeqNo, SubNo, Acc) ->
+    Acc_1 = gen_consumer_id_1(Id, SeqNo, SubNo, []),
+    gen_consumer_id(Id, (SeqNo - 1), SubNo, Acc ++ Acc_1).
+
+%% @private
+gen_consumer_id_1(_,_,0, Acc) ->
+    lists:reverse(Acc);
+gen_consumer_id_1(Id, SeqNo, SubNo, Acc) ->
+    Acc_1 = [?consumer_id(Id, SeqNo, SubNo)|Acc],
+    gen_consumer_id_1(Id, SeqNo, (SubNo - 1), Acc_1).

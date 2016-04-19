@@ -29,6 +29,7 @@
 -define(MQ_PROP_FUN, 'function').
 -define(MQ_PROP_DB_NAME, 'db_name').
 -define(MQ_PROP_DB_PROCS, 'db_procs').
+-define(MQ_PROP_CNS_PROCS_PER_DB, 'cns_procs_per_db').
 -define(MQ_PROP_ROOT_PATH, 'root_path').
 -define(MQ_PROP_NUM_OF_BATCH_PROC, 'num_of_batch_processes').
 -define(MQ_SUBSCRIBE_FUN, 'subscribe').
@@ -40,6 +41,7 @@
 -define(MQ_PROP_NUM_OF_STEPS, 'num_of_steps').
 
 -define(DEF_BACKEND_DB_PROCS, 3).
+-define(DEF_PROP_CNS_PROCS_PER_DB, 1).
 -define(DEF_BACKEND_DB, 'leveldb').
 -define(DEF_DB_ROOT_PATH, "mq").
 
@@ -71,16 +73,17 @@
           consumer_id :: atom(),       %% consumer-id
           mod_callback :: module(),    %% callback module name
           db_name :: atom(),           %% db's id
-          db_procs = 1 :: integer(),   %% db's processes
+          db_procs = ?DEF_BACKEND_DB_PROCS :: pos_integer(), %% db's processes
+          cns_procs_per_db = 1 :: pos_integer(),   %% consumer's processes/db
           root_path = [] :: string(),  %% db's path
           mqdb_id :: atom(),           %% mqdb's id
           mqdb_path = [] :: string(),  %% mqdb's path
           %% interval between batch-procs
-          max_interval = 1000  :: pos_integer(),   %% max waiting time (default: 1000msec (1sec))
-          regular_interval = 300 :: pos_integer(), %% regular waiting time (default: 300msec)
+          max_interval = ?DEF_CONSUME_MAX_INTERVAL :: pos_integer(),     %% max waiting time (default: 1000msec (1sec))
+          regular_interval = ?DEF_CONSUME_REG_INTERVAL :: pos_integer(), %% regular waiting time (default: 300msec)
           %% num of batch procs
-          max_batch_of_msgs = 1000 :: pos_integer(),    %% max num of batch of messages
-          regular_batch_of_msgs = 300 :: pos_integer(), %% regular num of batch of messages
+          max_batch_of_msgs = ?DEF_CONSUME_MAX_BATCH_MSGS :: pos_integer(),     %% max num of batch of messages
+          regular_batch_of_msgs = ?DEF_CONSUME_REG_BATCH_MSGS :: pos_integer(), %% regular num of batch of messages
           %% num of steps
           num_of_steps = ?DEF_CONSUME_NUM_OF_STEPS :: pos_integer()
          }).
@@ -132,10 +135,12 @@
 
 -define(DEF_CONSUMER_SUFFIX, "_consumer").
 
--define(consumer_id(_PubId, SeqNo),
+-define(consumer_id(_PubId,_SeqNo,_SubNo),
         list_to_atom(
           lists:append([atom_to_list(_PubId), ?DEF_CONSUMER_SUFFIX,
-                        "_", integer_to_list(SeqNo)]))).
+                        "_", integer_to_list(_SeqNo),
+                        "_", integer_to_list(_SubNo)
+                       ]))).
 
 -define(invoker_id(_PubId),
         list_to_atom(

@@ -30,7 +30,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(QUEUE_ID_PUBLISHER, 'replicate_miss_queue').
--define(QUEUE_ID_CONSUMER,  'replicate_miss_queue_consumer_1').
+-define(QUEUE_ID_CONSUMER,  'replicate_miss_queue_consumer_1_1').
 
 -define(TEST_KEY_1, "air/on/g/string_1").
 -define(TEST_KEY_2, "air/on/g/string_2").
