@@ -172,7 +172,7 @@ init([Id, PublisherId,
                                                   {publisher_id, PublisherId},
                                                   {interval, Interval},
                                                   {batch_of_msgs, BatchOfMsgs}]}]),
-    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_1, ?DEF_CHECK_MIN_INTERVAL_1),
+    ok = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_1, ?DEF_CHECK_MIN_INTERVAL_1),
     NamedPid = list_to_atom(atom_to_list(MqDbId)
                             ++ "_"
                             ++ integer_to_list(WorkerSeqNum)),
@@ -302,13 +302,13 @@ running(#event_info{event = ?EVENT_RUN,
         case catch consume(State, IsForceExec) of
             %% Execute the data-compaction repeatedly
             ok ->
-                Interval_1 = case Interval of
-                                 0 ->
-                                     ?DEF_CONSUME_MIN_INTERVAL;
-                                 _ ->
-                                     Interval
-                             end,
-                timer:apply_after(Interval_1, ?MODULE, run, [Id]),
+                case (Interval < 1) of
+                    true ->
+                        void;
+                    false ->
+                        timer:sleep(Interval)
+                end,
+                _ = spawn(?MODULE, run, [Id]),
                 {?ST_RUNNING, State};
             %% Reached end of the object-container
             not_found ->
@@ -424,7 +424,9 @@ suspending(#event_info{event = ?EVENT_INCR},
     Interval_1 = decr_interval_fun(Interval, StepInterval),
 
     %% To the next status
-    timer:apply_after(timer:seconds(1), ?MODULE, run, [Id]),
+    ok = timer:sleep(Interval_1),
+    _ = spawn(?MODULE, run, [Id]),
+
     NextStatus = ?ST_RUNNING,
     ok = leo_mq_server:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
@@ -461,8 +463,7 @@ suspending(_Other, From, State) ->
 %% @doc after processing of consumption messages
 %% @private
 after_execute(Ret, #state{id = Id} = State) ->
-    _ = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2,
-                      ?DEF_CHECK_MIN_INTERVAL_2),
+    ok = defer_consume(Id, ?DEF_CHECK_MAX_INTERVAL_2, ?DEF_CHECK_MIN_INTERVAL_2),
     {Ret, State}.
 
 
@@ -519,16 +520,14 @@ consume(Id, Mod, NumOfBatchProcs) ->
 
 %% @doc Defer a cosuming message
 %%
--spec(defer_consume(atom(), pos_integer(), integer()) ->
-             {ok, timer:tref()} | {error,_}).
+-spec(defer_consume(Id, MaxInterval, MinInterval) ->
+             ok | {error,_} when Id::atom(),
+                                 MaxInterval::pos_integer(),
+                                 MinInterval::pos_integer()).
 defer_consume(Id, MaxInterval, MinInterval) ->
-    defer_consume(Id, MaxInterval, MinInterval, false).
-
--spec(defer_consume(atom(), pos_integer(), integer(), boolean()) ->
-             {ok, timer:tref()} | {error,_}).
-defer_consume(Id, MaxInterval, MinInterval,_FromHandleInfo) ->
     Time = interval(Id, MinInterval, MaxInterval),
-    timer:apply_after(Time, ?MODULE, run, [Id]).
+    _ = timer:apply_after(Time, ?MODULE, run, [Id]),
+    ok.
 
 
 %% @doc Retrieve interval of the waiting proc
