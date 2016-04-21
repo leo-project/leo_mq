@@ -61,6 +61,7 @@ stop() ->
 %% @doc supervisor callback - Module:init(Args) -> Result
 %% @end
 init([]) ->
+    ok = leo_misc:init_env(),
     {ok, {{one_for_one, 5, 60}, []}}.
 
 

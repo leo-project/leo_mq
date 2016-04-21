@@ -135,9 +135,11 @@
 
 -define(DEF_CONSUMER_SUFFIX, "_consumer").
 
+
 -define(consumer_id(_PubId,_SeqNo,_SubNo),
         list_to_atom(
-          lists:append([atom_to_list(_PubId), ?DEF_CONSUMER_SUFFIX,
+          lists:append([atom_to_list(_PubId),
+                        ?DEF_CONSUMER_SUFFIX,
                         "_", integer_to_list(_SeqNo),
                         "_", integer_to_list(_SubNo)
                        ]))).
@@ -154,16 +156,33 @@
                             string:str(_StrId, ?DEF_CONSUMER_SUFFIX) - 1))
         end).
 
+-define(publisher_id(_PubId,_SeqNo),
+        list_to_atom(
+          lists:append([atom_to_list(_PubId),
+                        "_", integer_to_list(_SeqNo)]))).
+
+-define(publisher_id(_PubId,_DbProcs,_KeyBin),
+        list_to_atom(
+          lists:append([atom_to_list(_PubId),
+                        "_",
+                        integer_to_list((erlang:crc32(_KeyBin) rem _DbProcs) + 1)
+                       ]))).
+
+
 %% Retrieve the backend-db info
 -define(DEF_DB_PATH_INDEX, "index").
 -define(DEF_DB_PATH_MESSAGE, "message").
 
+-define(backend_db_info(Id),
+        list_to_atom(atom_to_list(Id) ++ "_message")).
 -define(backend_db_info(Id, RootPath),
         begin
             MQDBMessageId = list_to_atom(atom_to_list(Id) ++ "_message"),
             NewRootPath = case (string:len(RootPath) == string:rstr(RootPath, "/")) of
-                              true  -> RootPath;
-                              false ->  RootPath ++ "/"
+                              true ->
+                                  RootPath;
+                              false ->
+                                  RootPath ++ "/"
                           end,
             MQDBMessagePath = NewRootPath ++ ?DEF_DB_PATH_MESSAGE,
             {MQDBMessageId, MQDBMessagePath}

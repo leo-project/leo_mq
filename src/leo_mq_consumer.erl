@@ -244,7 +244,7 @@ idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id,
                           start_datetime = leo_date:now()},
     gen_fsm:reply(From, ok),
     ok = run(Id),
-    ok = leo_mq_server:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
+    ok = leo_mq_api:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State_1};
 idling(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
     gen_fsm:reply(From, {ok, Status}),
@@ -262,7 +262,8 @@ idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                                                interval = Interval} = State) ->
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
-    ok = leo_mq_server:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
+    ok = leo_mq_api:update_consumer_stats(
+           PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = ?ST_IDLING}};
 
 idling(#event_info{event = ?EVENT_INCR},
@@ -326,8 +327,7 @@ running(#event_info{event = ?EVENT_RUN,
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING, State_1}
         end,
-
-    ok = leo_mq_server:update_consumer_stats(
+    ok = leo_mq_api:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State_2#state{status = NextStatus,
                                            prev_proc_time = leo_date:clock()}};
@@ -336,7 +336,8 @@ running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
                                                     batch_of_msgs = BatchOfMsgs,
                                                     interval = Interval} = State) ->
     NextStatus = ?ST_SUSPENDING,
-    ok = leo_mq_server:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
+    ok = leo_mq_api:update_consumer_stats(
+           PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 
@@ -354,7 +355,7 @@ running(#event_info{event = ?EVENT_INCR},
 
     %% Modify the items
     NextStatus = ?ST_RUNNING,
-    ok = leo_mq_server:update_consumer_stats(
+    ok = leo_mq_api:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
@@ -380,7 +381,7 @@ running(#event_info{event = ?EVENT_DECR},
                  decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs)}
         end,
 
-    ok = leo_mq_server:update_consumer_stats(
+    ok = leo_mq_api:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1,
@@ -428,7 +429,7 @@ suspending(#event_info{event = ?EVENT_INCR},
     _ = spawn(?MODULE, run, [Id]),
 
     NextStatus = ?ST_RUNNING,
-    ok = leo_mq_server:update_consumer_stats(
+    ok = leo_mq_api:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs_1, Interval_1),
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
@@ -447,7 +448,7 @@ suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
                                                             interval = Interval} = State) ->
     gen_fsm:reply(From, ok),
     ok = run(Id),
-    ok = leo_mq_server:update_consumer_stats(PublisherId, ?ST_RUNNING, BatchOfMsgs, Interval),
+    ok = leo_mq_api:update_consumer_stats(PublisherId, ?ST_RUNNING, BatchOfMsgs, Interval),
     {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}};
 suspending(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
     gen_fsm:reply(From, {ok, Status}),
@@ -476,6 +477,7 @@ consume(#state{mq_properties = #mq_properties{
                                   db_procs = NumOfProcs,
                                   publisher_id = PublisherId,
                                   mod_callback = Mod},
+               worker_seq_num = SeqNum,
                batch_of_msgs  = NumOfBatchProcs,
                prev_proc_time = PrevProcTime} = _State, IsForceExec) ->
     ThisTime = leo_date:clock(),
@@ -485,19 +487,23 @@ consume(#state{mq_properties = #mq_properties{
           orelse IsForceExec) of
         true ->
             NumOfBatchProcs_1 = leo_math:ceiling(NumOfBatchProcs / NumOfProcs),
-            consume(PublisherId, Mod, NumOfBatchProcs_1);
+            consume(PublisherId, Mod, SeqNum, NumOfBatchProcs_1);
         false ->
             {error, short_interval}
     end.
 
 %% @doc Consume a message
 %% @private
--spec(consume(atom(), atom(), non_neg_integer()) ->
-             ok | not_found | {error, any()}).
-consume(_Id,_,0) ->
+-spec(consume(Id, Mod, SeqNum, NumOfBatchProcs) ->
+             ok | not_found | {error, any()} when Id::atom(),
+                                                  Mod::atom(),
+                                                  SeqNum::non_neg_integer(),
+                                                  NumOfBatchProcs::non_neg_integer()).
+consume(_Id,_,_,0) ->
     ok;
-consume(Id, Mod, NumOfBatchProcs) ->
-    case leo_mq_server:dequeue(Id) of
+consume(Id, Mod, SeqNum, NumOfBatchProcs) ->
+    PubId = ?publisher_id(Id, SeqNum),
+    case leo_mq_server:dequeue(PubId) of
         {ok, MsgBin} ->
             try
                 erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}])
@@ -505,13 +511,13 @@ consume(Id, Mod, NumOfBatchProcs) ->
                 _:Reason ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
-                                            {function, "consume/3"},
+                                            {function, "consume/4"},
                                             {line, ?LINE}, {body, [{module, Mod},
                                                                    {id, Id},
                                                                    {cause, Reason}
                                                                   ]}])
             after
-                consume(Id, Mod, NumOfBatchProcs - 1)
+                consume(Id, Mod, SeqNum, NumOfBatchProcs - 1)
             end;
         Other ->
             Other

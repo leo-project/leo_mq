@@ -30,7 +30,7 @@
 -include("leo_mq.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([start_link/2,
+-export([start_link/3,
          stop/1]).
 
 -export([init/1,
@@ -40,8 +40,7 @@
          terminate/2,
          code_change/3]).
 
--export([enqueue/3, dequeue/1,
-         status/1, update_consumer_stats/4, close/1]).
+-export([enqueue/3, dequeue/1, close/1]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -54,11 +53,9 @@
 -define(DEF_AFTER_NOT_FOUND_INTERVAL_MAX, 10000).
 
 -record(state, {id :: atom(),
+                seq_num = 0 :: non_neg_integer(),
+                backend_db_id :: atom(),
                 mq_properties = #mq_properties{} :: #mq_properties{},
-                count = 0 :: non_neg_integer(),
-                consumer_status = ?ST_IDLING :: state_of_mq(),
-                consumer_batch_of_msgs = 0 :: non_neg_integer(),
-                consumer_interval = 0 :: non_neg_integer(),
                 state_filepath = [] :: string()
                }).
 
@@ -67,11 +64,12 @@
 %% API
 %%--------------------------------------------------------------------
 %% @doc Creates the gen_server process as part of a supervision tree
--spec(start_link(Id, Props) ->
+-spec(start_link(Id, WorkerSeqNum, Props) ->
              {ok,pid()} | ignore | {error, any()} when Id::atom(),
+                                                       WorkerSeqNum::non_neg_integer(),
                                                        Props::[tuple()]).
-start_link(Id, Props) ->
-    gen_server:start_link({local, Id}, ?MODULE, [Id, Props], []).
+start_link(Id, WorkerSeqNum, Props) ->
+    gen_server:start_link({local, Id}, ?MODULE, [Id, WorkerSeqNum, Props], []).
 
 %% @doc Close the process
 -spec(stop(Id) ->
@@ -101,21 +99,10 @@ dequeue(Id) ->
 
 %% @doc Retrieve the current state from the queue.
 %%
--spec(status(Id) ->
-             {ok, [{atom(), any()}]} when Id::atom()).
-status(Id) ->
-    gen_server:call(Id, status, ?DEF_TIMEOUT).
-
-
-%% @doc Retrieve the current state from the queue.
-%%
--spec(update_consumer_stats(Id, CnsStatus, CnsBatchOfMsgs, CnsIntervalBetweenBatchProcs) ->
-             ok when Id::atom(),
-                     CnsStatus::state_of_mq(),
-                     CnsBatchOfMsgs::non_neg_integer(),
-                     CnsIntervalBetweenBatchProcs::non_neg_integer()).
-update_consumer_stats(Id, CnsStatus, CnsBatchOfMsgs, CnsIntervalBetweenBatchProcs) ->
-    gen_server:cast(Id, {update_consumer_stats, CnsStatus, CnsBatchOfMsgs, CnsIntervalBetweenBatchProcs}).
+%% -spec(status(Id) ->
+%%              {ok, [{atom(), any()}]} when Id::atom()).
+%% status(Id) ->
+%%     gen_server:call(Id, status, ?DEF_TIMEOUT).
 
 
 %% @doc get state from the queue.
@@ -130,12 +117,10 @@ close(Id) ->
 %% GEN_SERVER CALLBACKS
 %%--------------------------------------------------------------------
 %% @doc gen_server callback - Module:init(Args) -> Result
-init([Id, #mq_properties{db_name   = DBName,
-                         db_procs  = DBProcs,
-                         mqdb_id   = MQDBMessageId,
-                         mqdb_path = MQDBMessagePath,
-                         root_path = RootPath
-                        } = MQProps]) ->
+init([Id, WorkerSeqNum, #mq_properties{db_name = DBName,
+                                       db_procs = DBProcs,
+                                       mqdb_id = MQDBMessageId,
+                                       mqdb_path = MQDBMessagePath} = MQProps]) ->
     case erlang:whereis(leo_backend_db_sup) of
         undefined ->
             {stop, 'not_initialized'};
@@ -157,102 +142,81 @@ init([Id, #mq_properties{db_name   = DBName,
                     void
             end,
 
-            %% Retrieve total num of message from the local state file
-            StateFilePath = filename:join([RootPath, atom_to_list(Id)]),
-            Count = case file:consult(StateFilePath) of
-                        {ok, Props} ->
-                            leo_misc:get_value('count', Props, 0);
-                        _ ->
-                            0
-                    end,
+            IdStr = atom_to_list(Id),
+            IdStr_1 = string:substr(IdStr, 1,
+                                    string:rstr(IdStr, "_") - 1),
+            SeqNum = WorkerSeqNum - 1,
+
             {ok, #state{id = Id,
-                        mq_properties = MQProps,
-                        count = Count,
-                        state_filepath = StateFilePath}, ?DEF_TIMEOUT}
+                        seq_num = SeqNum,
+                        backend_db_id = list_to_atom(
+                                          lists:append([IdStr_1,
+                                                        "_message_",
+                                                        integer_to_list(SeqNum)
+                                                       ])),
+                        mq_properties = MQProps}, ?DEF_TIMEOUT}
     end.
 
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
-handle_call({enqueue, KeyBin, MessageBin}, _From, #state{mq_properties = MQProps,
-                                                         count = Count} = State) ->
-    MQDBMessageId = MQProps#mq_properties.mqdb_id,
-    {Reply_1, Count_1} =
-        case leo_backend_db_api:get(MQDBMessageId, KeyBin) of
+handle_call({enqueue, KeyBin, MessageBin}, _From, #state{backend_db_id = BackendDbId} = State) ->
+    Reply_1 =
+        case leo_backend_db_server:get(BackendDbId, KeyBin) of
             not_found ->
-                Reply = put_message(KeyBin, MessageBin, MQDBMessageId),
-                {Reply, Count + 1};
+                put_message(KeyBin, MessageBin, BackendDbId);
             _ ->
-                {ok, Count}
+                ok
         end,
-    {reply, Reply_1, State#state{count = Count_1}, ?DEF_TIMEOUT};
+    {reply, Reply_1, State, ?DEF_TIMEOUT};
 
-handle_call(dequeue, _From, #state{count = Count,
-                                   mq_properties = MQProps} = State) ->
+handle_call(dequeue, _From, #state{backend_db_id = BackendDbId} = State) ->
+    Reply = case catch leo_backend_db_server:first(BackendDbId) of
+                {ok, Key, Val} ->
+                    %% Taking measure of queue-msg migration
+                    %% for previsous 1.2.0-pre1
+                    MsgTerm = binary_to_term(Val),
+                    MsgBin = case is_tuple(MsgTerm) of
+                                 true when is_integer(element(1, MsgTerm)) andalso
+                                           is_binary(element(2, MsgTerm)) ->
+                                     element(2, MsgTerm);
+                                 _ ->
+                                     Val
+                             end,
+
+                    %% Remove the queue from the backend-db
+                    case catch leo_backend_db_server:delete(BackendDbId, Key) of
+                        ok ->
+                            {ok, MsgBin};
+                        {_, Why} ->
+                            error_logger:error_msg("~p,~p,~p,~p~n",
+                                                   [{module, ?MODULE_STRING},
+                                                    {function, "handle_call/3"},
+                                                    {line, ?LINE}, {body, Why}]),
+                            {error, Why}
+                    end;
+                not_found = Cause ->
+                    Cause;
+                {_, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "handle_call/3"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    {error, Cause}
+            end,
+    {reply, Reply, State, ?DEF_TIMEOUT};
+
+%% handle_call(status, _From, #state{count = Count} = State) ->
+%%     {reply, {ok, Count}, State, ?DEF_TIMEOUT};
+
+handle_call(close, _From, #state{mq_properties = MQProps} = State) ->
     MQDBMessageId = MQProps#mq_properties.mqdb_id,
-    {Reply, Count_1} =
-        case catch leo_backend_db_api:first(MQDBMessageId) of
-            {ok, {Key, Val}} ->
-                %% Taking measure of queue-msg migration
-                %% for previsous 1.2.0-pre1
-                MsgTerm = binary_to_term(Val),
-                MsgBin = case is_tuple(MsgTerm) of
-                             true when is_integer(element(1, MsgTerm)) andalso
-                                       is_binary(element(2, MsgTerm)) ->
-                                 element(2, MsgTerm);
-                             _ ->
-                                 Val
-                         end,
-
-                %% Remove the queue from the backend-db
-                case catch leo_backend_db_api:delete(MQDBMessageId, Key) of
-                    ok when Count > 0 ->
-                        {{ok, MsgBin}, Count - 1};
-                    ok ->
-                        {{ok, MsgBin}, Count};
-                    {_, Why} ->
-                        error_logger:error_msg("~p,~p,~p,~p~n",
-                                               [{module, ?MODULE_STRING},
-                                                {function, "handle_call/3"},
-                                                {line, ?LINE}, {body, Why}]),
-                        {{error, Why}, Count}
-                end;
-            not_found = Cause ->
-                {Cause, 0};
-            {_, Cause} ->
-                error_logger:error_msg("~p,~p,~p,~p~n",
-                                       [{module, ?MODULE_STRING},
-                                        {function, "handle_call/3"},
-                                        {line, ?LINE}, {body, Cause}]),
-                {{error, Cause}, Count}
-        end,
-    {reply, Reply, State#state{count = Count_1}, ?DEF_TIMEOUT};
-
-handle_call(status, _From, #state{consumer_status = ConsumerStatus,
-                                  consumer_batch_of_msgs = BatchOfMsgs,
-                                  consumer_interval = Interval,
-                                  count = Count} = State) ->
-    {reply, {ok, [{?MQ_CNS_PROP_NUM_OF_MSGS, Count},
-                  {?MQ_CNS_PROP_STATUS, ConsumerStatus},
-                  {?MQ_CNS_PROP_BATCH_OF_MSGS, BatchOfMsgs},
-                  {?MQ_CNS_PROP_INTERVAL, Interval}
-                 ]}, State, ?DEF_TIMEOUT};
-
-handle_call(close, _From, #state{count = Count,
-                                 state_filepath = StateFilePath,
-                                 mq_properties = MQProps} = State) ->
-    MQDBMessageId = MQProps#mq_properties.mqdb_id,
-    ok = close_db(MQDBMessageId, Count, StateFilePath),
+    ok = close_db(MQDBMessageId),
     {reply, ok, State, ?DEF_TIMEOUT};
 
 handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State}.
 
 
-%% @doc gen_server callback - Module:handle_cast(Request, State) -> Result
-handle_cast({update_consumer_stats, CnsStatus, CnsBatchOfMsgs, CnsIntervalBetweenBatchProcs}, State) ->
-    {noreply, State#state{consumer_status = CnsStatus,
-                          consumer_batch_of_msgs = CnsBatchOfMsgs,
-                          consumer_interval = CnsIntervalBetweenBatchProcs}, ?DEF_TIMEOUT};
 handle_cast(_Msg, State) ->
     {noreply, State, ?DEF_TIMEOUT}.
 
@@ -272,15 +236,13 @@ handle_info(_Info, State) ->
 %% gen_server callback - Module:terminate(Reason, State)
 %% </p>
 terminate(_Reason, #state{id = Id,
-                          count = Count,
-                          state_filepath = StateFilePath,
                           mq_properties = MQProps}) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/1"},
                            {line, ?LINE}, {body, Id}]),
     %% Close the backend_db
     MQDBMessageId = MQProps#mq_properties.mqdb_id,
-    ok = close_db(MQDBMessageId, Count, StateFilePath),
+    ok = close_db(MQDBMessageId),
     ok.
 
 
@@ -297,12 +259,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% @doc put a message into the queue.
 %%
--spec(put_message(MsgKeyBin, MsgBin, MQDBMessageId) ->
+-spec(put_message(MsgKeyBin, MsgBin, BackendDbId) ->
              ok | {error, any()} when MsgKeyBin::binary(),
                                       MsgBin::binary(),
-                                      MQDBMessageId::atom()).
-put_message(MsgKeyBin, MsgBin, MQDBMessageId) ->
-    case catch leo_backend_db_api:put(MQDBMessageId, MsgKeyBin, MsgBin) of
+                                      BackendDbId::atom()).
+put_message(MsgKeyBin, MsgBin, BackendDbId) ->
+    case catch leo_backend_db_server:put(
+                 BackendDbId, MsgKeyBin, MsgBin) of
         ok ->
             ok;
         {'EXIT', Cause} ->
@@ -318,15 +281,9 @@ put_message(MsgKeyBin, MsgBin, MQDBMessageId) ->
 
 %% @doc Close a db
 %% @private
--spec(close_db(InstanceName, Count, StateFilePath) ->
-             ok when InstanceName::atom(),
-                     Count::non_neg_integer(),
-                     StateFilePath::string()).
-close_db(InstanseName, Count, StateFilePath) ->
-    %% Output the current state
-    catch leo_file:file_unconsult(StateFilePath, [{id, InstanseName},
-                                                  {count, Count}
-                                                 ]),
+-spec(close_db(InstanceName) ->
+             ok when InstanceName::atom()).
+close_db(InstanseName) ->
     %% Close the backend-db
     SupRef = leo_backend_db_sup,
     case erlang:whereis(SupRef) of
