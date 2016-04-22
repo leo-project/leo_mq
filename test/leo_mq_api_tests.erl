@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012-2015 Rakuten, Inc.
+%% Copyright (c) 2012-2016 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -30,6 +30,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(QUEUE_ID_PUBLISHER, 'replicate_miss_queue').
+-define(QUEUE_ID_PUBLISHER_WORKER, 'replicate_miss_queue_1').
 -define(QUEUE_ID_CONSUMER,  'replicate_miss_queue_consumer_1_1').
 
 -define(TEST_KEY_1, "air/on/g/string_1").
@@ -127,7 +128,7 @@ publish() ->
     ok = leo_mq_api:publish(
            ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_5), term_to_binary(?TEST_META_5)),
 
-    timer:sleep(500),
+    timer:sleep(timer:seconds(1)),
     ok = check_state(),
 
     {ok, Stats} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
@@ -142,15 +143,16 @@ publish() ->
 
 check_state() ->
     check_state_1(0).
-check_state_1(3) ->
+check_state_1(10) ->
     ok;
 check_state_1(Times) ->
-    timer:sleep(500),
-    case leo_mq_consumer:state(?QUEUE_ID_CONSUMER) of
-        {ok, ?ST_IDLING} ->
-            check_state_1(Times + 1);
-        {ok,_Other} ->
-            check_state_1(Times)
+    timer:sleep(timer:seconds(10)),
+    {ok, Stats_1} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    case leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats_1) of
+        0 ->
+            ok;
+        _ ->
+            check_state_1(Times + 1)
     end.
 
 
@@ -207,6 +209,7 @@ pub_sub_1() ->
     ok = leo_mq_api:suspend(?QUEUE_ID_PUBLISHER),
 
     {ok, State_1} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
+    ?debugVal(State_1),
     ?assertEqual(?ST_SUSPENDING, State_1),
 
     {ok, [Consumers_1|_]} = leo_mq_api:consumers(),

@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012-2015 Rakuten, Inc.
+%% Copyright (c) 2012-2016 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -61,6 +61,7 @@ stop() ->
 %% @doc supervisor callback - Module:init(Args) -> Result
 %% @end
 init([]) ->
+    ok = leo_misc:init_env(),
     {ok, {{one_for_one, 5, 60}, []}}.
 
 
