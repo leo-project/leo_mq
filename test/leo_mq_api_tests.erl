@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012-2015 Rakuten, Inc.
+%% Copyright (c) 2012-2016 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -143,15 +143,16 @@ publish() ->
 
 check_state() ->
     check_state_1(0).
-check_state_1(5) ->
+check_state_1(10) ->
     ok;
 check_state_1(Times) ->
-    timer:sleep(1000),
-    case leo_mq_consumer:state(?QUEUE_ID_CONSUMER) of
-        {ok, ?ST_IDLING} ->
-            check_state_1(Times + 1);
-        {ok,_Other} ->
-            check_state_1(Times)
+    timer:sleep(timer:seconds(10)),
+    {ok, Stats_1} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    case leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats_1) of
+        0 ->
+            ok;
+        _ ->
+            check_state_1(Times + 1)
     end.
 
 

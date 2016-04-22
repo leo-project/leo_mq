@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012-2015 Rakuten, Inc.
+%% Copyright (c) 2012-2016 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -150,31 +150,33 @@ resume(Id, SeqNo, SubNo) ->
 -spec(status(Id) ->
              {ok, [{atom(), any()}]} when Id::atom()).
 status(Id) ->
-    case leo_misc:get_env(leo_mq, {props, Id}) of
-        undefined ->
-            {error, not_initialized};
-        {ok, #mq_properties{db_procs = _DBProcs}} ->
-            Ret = case leo_backend_db_api:status(?backend_db_info(Id)) of
-                      not_found ->
-                          0;
-                      DBStat ->
-                          lists:foldl(fun([{key_count, Count}], Acc) ->
-                                              Acc + Count
-                                      end, 0, DBStat)
-                  end,
-            {State_1, BatchOfMsgs_1, Interval_1} =
-                case leo_misc:get_env(leo_mq, {state, Id}) of
-                    undefined ->
-                        {?ST_IDLING, 0, 0};
-                    {ok, {State, BatchOfMsgs, Interval}} ->
-                        {State, BatchOfMsgs, Interval}
-                end,
-            {ok, [{?MQ_CNS_PROP_NUM_OF_MSGS, Ret},
-                  {?MQ_CNS_PROP_STATUS, State_1},
-                  {?MQ_CNS_PROP_BATCH_OF_MSGS, BatchOfMsgs_1},
-                  {?MQ_CNS_PROP_INTERVAL, Interval_1}
-                 ]}
-    end.
+    Ret = case leo_backend_db_api:status(?backend_db_info(Id)) of
+              not_found ->
+                  0;
+              DBStat ->
+                  lists:foldl(fun([{key_count, Count}], Acc) ->
+                                      Acc + Count
+                              end, 0, DBStat)
+          end,
+    {State_2, BatchOfMsgs_1, Interval_1} =
+        case leo_misc:get_env(leo_mq, {state, Id}) of
+            undefined ->
+                {?ST_IDLING, 0, 0};
+            {ok, {State, BatchOfMsgs, Interval}} ->
+                State_1 = case (Ret < 1) of
+                              true ->
+                                  ?ST_IDLING;
+                              false ->
+                                  State
+                          end,
+                {State_1, BatchOfMsgs, Interval}
+        end,
+    {ok, [{?MQ_CNS_PROP_NUM_OF_MSGS, Ret},
+          {?MQ_CNS_PROP_STATUS, State_2},
+          {?MQ_CNS_PROP_BATCH_OF_MSGS, BatchOfMsgs_1},
+          {?MQ_CNS_PROP_INTERVAL, Interval_1}
+         ]}.
+    %% end.
 
 
 %% @doc Retrieve registered consumers
@@ -235,13 +237,28 @@ decrease(Id, SeqNo, SubNo) ->
     ok.
 
 %% @doc Update consumer status
--spec(update_consumer_stats(PublisherId, State, BatchOfMsgs, Interval) ->
-             ok when PublisherId::atom(),
+-spec(update_consumer_stats(PubId, State, BatchOfMsgs, Interval) ->
+             ok when PubId::atom(),
                      State::state_of_mq(),
                      BatchOfMsgs::non_neg_integer(),
                      Interval::non_neg_integer()).
-update_consumer_stats(PublisherId, State, BatchOfMsgs, Interval) ->
-    leo_misc:set_env(leo_mq, {state, PublisherId}, {State, BatchOfMsgs, Interval}).
+update_consumer_stats(PubId, State, BatchOfMsgs, Interval) ->
+    State_1 = case leo_backend_db_api:status(
+                     ?backend_db_info(PubId)) of
+                  not_found ->
+                      ?ST_IDLING;
+                  DBStat ->
+                      case (lists:foldl(fun([{key_count, Count}], Acc) ->
+                                                Acc + Count
+                                        end, 0, DBStat) > 0) of
+                          true ->
+                              State;
+                          false ->
+                              ?ST_IDLING
+                      end
+              end,
+    leo_misc:set_env(leo_mq, {state, PubId},
+                     {State_1, BatchOfMsgs, Interval}).
 
 
 %%--------------------------------------------------------------------
@@ -256,12 +273,12 @@ start_child_1(RefSup, #mq_properties{db_procs = DbProcs} = Props) ->
 %% @private
 start_child_2(_,_,0) ->
     ok;
-start_child_2(RefSup, #mq_properties{publisher_id = PublisherId,
+start_child_2(RefSup, #mq_properties{publisher_id = PubId,
                                      cns_procs_per_db = CnsProcsPerDB} = Props, WorkerSeqNum) ->
-    PublisherId_1 = ?publisher_id(PublisherId, WorkerSeqNum),
+    PubId_1 = ?publisher_id(PubId, WorkerSeqNum),
     case supervisor:start_child(
-           RefSup, {PublisherId_1,
-                    {leo_mq_server, start_link, [PublisherId_1, WorkerSeqNum, Props]},
+           RefSup, {PubId_1,
+                    {leo_mq_server, start_link, [PubId_1, WorkerSeqNum, Props]},
                     permanent, 2000, worker, [leo_mq_server]}) of
         {ok,_Pid} ->
             case start_child_3(RefSup, Props, WorkerSeqNum, CnsProcsPerDB) of
@@ -286,14 +303,14 @@ start_child_2(RefSup, #mq_properties{publisher_id = PublisherId,
 %% @private
 start_child_3(_RefSup,_Props,_WorkerSeqNum, 0) ->
     ok;
-start_child_3(RefSup, #mq_properties{publisher_id = PublisherId} = Props,
+start_child_3(RefSup, #mq_properties{publisher_id = PubId} = Props,
               WorkerSeqNum, CnsProcsPerDB) ->
-    ConsumerId = ?consumer_id(PublisherId, WorkerSeqNum, CnsProcsPerDB),
+    ConsumerId = ?consumer_id(PubId, WorkerSeqNum, CnsProcsPerDB),
 
     case supervisor:start_child(
            RefSup, {ConsumerId,
                     {leo_mq_consumer, start_link,
-                     [ConsumerId, PublisherId, Props, WorkerSeqNum]},
+                     [ConsumerId, PubId, Props, WorkerSeqNum]},
                     permanent, 2000, worker, [leo_mq_consumer]}) of
         {ok, _Pid} ->
             start_child_3(RefSup, Props, WorkerSeqNum, (CnsProcsPerDB - 1));
