@@ -71,7 +71,7 @@
 %%--------------------------------------------------------------------
 -ifdef(EUNIT).
 
-publish_test_() ->
+publish_1_test_() ->
     {setup,
      fun ( ) ->
              application:start(leo_mq)
@@ -81,12 +81,80 @@ publish_test_() ->
              ok
      end,
      [
-      {"test pub/sub-2",
-       {timeout, timer:seconds(1000),fun publish/0}}
+      {"test-1",
+       {timeout, timer:seconds(1000),fun publish_1/0}}
+     ]}.
+
+publish_2_test_() ->
+    {setup,
+     fun ( ) ->
+             application:start(leo_mq)
+     end,
+     fun (_) ->
+             application:stop(leo_mq),
+             ok
+     end,
+     [
+      {"test-2",
+       {timeout, timer:seconds(1000),fun publish_2/0}}
      ]}.
 
 
-publish() ->
+publish_1() ->
+    S = os:cmd("pwd"),
+    Path = string:substr(S, 1, length(S) -1) ++ "/queue",
+    os:cmd("rm -rf " ++ Path),
+
+    meck:new(?TEST_CLIENT_MOD, [non_strict]),
+    meck:expect(?TEST_CLIENT_MOD, handle_call,
+                fun({consume, Id, MsgBin}) ->
+                        ?debugVal({consume, Id, binary_to_term(MsgBin)}),
+                        case binary_to_term(MsgBin) of
+                            ?TEST_META_1 -> ok;
+                            ?TEST_META_2 -> ok;
+                            ?TEST_META_3 -> ok;
+                            ?TEST_META_4 -> ok;
+                            ?TEST_META_5 -> ok;
+                            _ ->
+                                throw({error, invalid_message})
+                        end;
+                   ({publish, Id, Reply}) ->
+                        ?debugVal({publish, Id, Reply}),
+                        ok
+                end),
+
+    Ret =  leo_mq_api:new(?QUEUE_ID_PUBLISHER, [{?MQ_PROP_MOD, ?TEST_CLIENT_MOD},
+                                                {?MQ_PROP_ROOT_PATH, Path},
+                                                {?MQ_PROP_DB_NAME, ?DEF_BACKEND_DB},
+                                                {?MQ_PROP_DB_PROCS, 1},
+                                                {?MQ_PROP_NUM_OF_BATCH_PROC, 10},
+                                                {max_interval, 1000},
+                                                {min_interval, 100}]),
+    ?assertEqual(ok, Ret),
+    ok = leo_mq_api:publish(
+           ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_1), term_to_binary(?TEST_META_1)),
+    ok = leo_mq_api:publish(
+           ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_2), term_to_binary(?TEST_META_2)),
+    ok = leo_mq_api:publish(
+           ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_3), term_to_binary(?TEST_META_3)),
+    ok = leo_mq_api:publish(
+           ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_4), term_to_binary(?TEST_META_4)),
+    ok = leo_mq_api:publish(
+           ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_5), term_to_binary(?TEST_META_5)),
+
+    timer:sleep(timer:seconds(1)),
+    ok = check_state(),
+
+    {ok, Stats} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?debugVal(Stats),
+    Count = leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats),
+    ?assertEqual(0, Count),
+
+    meck:unload(),
+    os:cmd("rm -rf " ++ Path),
+    ok.
+
+publish_2() ->
     S = os:cmd("pwd"),
     Path = string:substr(S, 1, length(S) -1) ++ "/queue",
     os:cmd("rm -rf " ++ Path),

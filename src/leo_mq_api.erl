@@ -81,11 +81,18 @@ new(RefSup, Id, Props) ->
                                    Mod::module(),
                                    Props::[tuple()]).
 prop_list_to_mq_properties(Id, Mod, Props) ->
+    DBProcs = leo_misc:get_value(?MQ_PROP_DB_PROCS, Props, ?DEF_BACKEND_DB_PROCS),
+    DBProcs_1 = case (DBProcs < ?DEF_BACKEND_DB_PROCS) of
+                    true ->
+                        ?DEF_BACKEND_DB_PROCS;
+                    false ->
+                        DBProcs
+                end,
     Props_1 = #mq_properties{
                  publisher_id = Id,
                  mod_callback = leo_misc:get_value(?MQ_PROP_MOD, Props, Mod),
                  db_name = leo_misc:get_value(?MQ_PROP_DB_NAME, Props, ?DEF_BACKEND_DB),
-                 db_procs = leo_misc:get_value(?MQ_PROP_DB_PROCS, Props, ?DEF_BACKEND_DB_PROCS),
+                 db_procs = DBProcs_1,
                  cns_procs_per_db = leo_misc:get_value(?MQ_PROP_CNS_PROCS_PER_DB, Props, ?DEF_PROP_CNS_PROCS_PER_DB),
                  root_path = leo_misc:get_value(?MQ_PROP_ROOT_PATH, Props, ?DEF_DB_ROOT_PATH),
                  %% interval between batchs
