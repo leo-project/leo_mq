@@ -7,14 +7,12 @@ PLT_FILE = .leo_mq_dialyzer_plt
 DOT_FILE = leo_mq.dot
 CALL_GRAPH_FILE = leo_mq.png
 
-all:
-	@$(REBAR) update-deps
+all: get_deps compile xref eunit
+get_deps:
 	@$(REBAR) get-deps
-	@$(REBAR) compile
-	@$(REBAR) xref skip_deps=true
-	@$(REBAR) eunit skip_deps=true
 compile:
-	@$(REBAR) compile skip_deps=true
+	$(SHELL) -c ./replace_otp_vsn.sh
+	@$(REBAR) compile
 xref:
 	@$(REBAR) xref skip_deps=true
 eunit:
@@ -35,7 +33,7 @@ callgraph: graphviz
 graphviz:
 	$(if $(shell which dot),,$(error "To make the depgraph, you need graphviz installed"))
 clean:
-	@$(REBAR) clean skip_deps=true
+	@$(REBAR) clean
 distclean:
 	@$(REBAR) delete-deps
 	@$(REBAR) clean
