@@ -503,10 +503,11 @@ consume(_Id,_,_,0) ->
     ok;
 consume(Id, Mod, SeqNum, NumOfBatchProcs) ->
     PubId = ?publisher_id(Id, SeqNum),
-    case leo_mq_server:dequeue(PubId) of
-        {ok, MsgBin} ->
+    case leo_mq_server:peek(PubId) of
+        {ok, KeyBin, MsgBin} ->
             try
-                erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}])
+                erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
+                leo_mq_server:remove(PubId, KeyBin)
             catch
                 _:Reason ->
                     error_logger:error_msg("~p,~p,~p,~p~n",

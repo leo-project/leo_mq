@@ -41,6 +41,7 @@
          code_change/3]).
 
 -export([enqueue/3, dequeue/1, close/1]).
+-export([peek/1, remove/2]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -96,6 +97,23 @@ enqueue(Id, KeyBin, MessageBin) ->
 dequeue(Id) ->
     gen_server:call(Id, dequeue, ?DEF_TIMEOUT).
 
+%% @doc Peek an item in a queuing data.
+%%
+-spec(peek(Id) ->
+             {ok, KeyBin, MessageBin} | {error, any()} | not_found
+                                when Id::atom(),
+                                     KeyBin::binary(),
+                                     MessageBin::binary()).
+peek(Id) ->
+    gen_server:call(Id, peek, ?DEF_TIMEOUT).
+
+%% @doc Remove an item in a queuing data.
+%%
+-spec(remove(Id, KeyBin) ->
+             ok | {error, any()} when Id::atom(),
+                                      KeyBin::binary()).
+remove(Id, KeyBin) ->
+    gen_server:call(Id, {remove, KeyBin}, ?DEF_TIMEOUT).
 
 %% @doc Retrieve the current state from the queue.
 %%
@@ -202,6 +220,45 @@ handle_call(dequeue, _From, #state{backend_db_id = BackendDbId} = State) ->
                                             {function, "handle_call/3"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
+            end,
+    {reply, Reply, State, ?DEF_TIMEOUT};
+
+handle_call(peek, _From, #state{backend_db_id = BackendDbId} = State) ->
+    Reply = case catch leo_backend_db_server:first(BackendDbId) of
+                {ok, Key, Val} ->
+                    %% Taking measure of queue-msg migration
+                    %% for previsous 1.2.0-pre1
+                    MsgTerm = binary_to_term(Val),
+                    MsgBin = case is_tuple(MsgTerm) of
+                                 true when is_integer(element(1, MsgTerm)) andalso
+                                           is_binary(element(2, MsgTerm)) ->
+                                     element(2, MsgTerm);
+                                 _ ->
+                                     Val
+                             end,
+
+                    {ok, Key, MsgBin};
+                not_found = Cause ->
+                    Cause;
+                {_, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "handle_call/3"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    {error, Cause}
+            end,
+    {reply, Reply, State, ?DEF_TIMEOUT};
+
+handle_call({remove, KeyBin}, _From, #state{backend_db_id = BackendDbId} = State) ->
+    Reply = case catch leo_backend_db_server:delete(BackendDbId, KeyBin) of
+                ok ->
+                    ok;
+                {_, Why} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "handle_call/3"},
+                                            {line, ?LINE}, {body, Why}]),
+                    {error, Why}
             end,
     {reply, Reply, State, ?DEF_TIMEOUT};
 
