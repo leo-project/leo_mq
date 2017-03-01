@@ -4,6 +4,7 @@ REBAR := ./rebar
 APPS = erts kernel stdlib sasl crypto compiler inets mnesia public_key runtime_tools snmp syntax_tools tools xmerl webtool ssl
 LIBS = deps/leo_commons/ebin deps/leo_backend_db/ebin deps/bitcask/ebin deps/eleveldb/ebin
 PLT_FILE = .leo_mq_dialyzer_plt
+COMMON_PLT_FILE = .common_dialyzer_plt
 DOT_FILE = leo_mq.dot
 CALL_GRAPH_FILE = leo_mq.png
 
@@ -22,10 +23,10 @@ check_plt:
 	dialyzer --check_plt --plt $(PLT_FILE) --apps $(APPS)
 build_plt:
 	@$(REBAR) compile
-	dialyzer --build_plt --output_plt $(PLT_FILE) --apps $(APPS) $(LIBS)
+	dialyzer --build_plt --output_plt $(PLT_FILE) --apps $(LIBS)
 dialyzer:
 	@$(REBAR) compile
-	dialyzer -Wno_return --plt $(PLT_FILE) -r ebin/ --dump_callgraph $(DOT_FILE) -Wrace_conditions | fgrep -v -f ./dialyzer.ignore-warnings
+	dialyzer -Wno_return --plts $(PLT_FILE) $(COMMON_PLT_FILE) -r ebin/ --dump_callgraph $(DOT_FILE) -Wrace_conditions | fgrep -v -f ./dialyzer.ignore-warnings
 doc: compile
 	@$(REBAR) doc
 callgraph: graphviz
