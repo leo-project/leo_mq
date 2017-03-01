@@ -230,7 +230,7 @@ format_status(_Opt, [_PDict, State]) ->
 %% @doc State of 'idle'
 %%
 -spec(idling(EventInfo, From, State) ->
-             {next_state, ?ST_IDLING | ?ST_RUNNING, State, non_neg_integer()}
+             {next_state, ?ST_IDLING | ?ST_RUNNING, State}
                  when EventInfo::#event_info{},
                       From::{pid(), atom()},
                       State::#state{}).
@@ -254,7 +254,7 @@ idling(_, From, State) ->
     {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING}}.
 
 -spec(idling(EventInfo, State) ->
-             {next_state, ?ST_IDLING, State, non_neg_integer()} when EventInfo::#event_info{},
+             {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
                                                                      State::#state{}).
 idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                                                publisher_id = PublisherId,
@@ -291,7 +291,7 @@ idling(_, State) ->
 
 %% @doc State of 'running'
 -spec(running(EventInfo, State) ->
-             {next_state, ?ST_RUNNING, State, non_neg_integer()}
+             {next_state, ?ST_RUNNING, State}
                  when EventInfo::#event_info{},
                       State::#state{}).
 running(#event_info{event = ?EVENT_RUN,
@@ -391,7 +391,7 @@ running(_, State) ->
     {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}}.
 
 -spec(running( _, _, #state{}) ->
-             {next_state, ?ST_RUNNING, #state{}, non_neg_integer()}).
+             {next_state, ?ST_RUNNING, #state{}}).
 running(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
     gen_fsm:reply(From, {ok, Status}),
     {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}};
@@ -403,7 +403,7 @@ running(_, From, State) ->
 %% @doc State of 'suspend'
 %%
 -spec(suspending(EventInfo, State) ->
-             {next_state, ?ST_SUSPENDING, State, non_neg_integer()}
+             {next_state, ?ST_SUSPENDING, State}
                  when EventInfo::#event_info{},
                       State::#state{}).
 suspending(#event_info{event = ?EVENT_RUN}, State) ->
@@ -438,7 +438,7 @@ suspending(_, State) ->
     {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}}.
 
 -spec(suspending(EventInfo, From, State) ->
-             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State, non_neg_integer()}
+             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State}
                  when EventInfo::#event_info{},
                       From::{pid(),Tag::atom()},
                       State::#state{}).

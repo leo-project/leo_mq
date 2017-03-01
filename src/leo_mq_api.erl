@@ -290,9 +290,7 @@ start_child_2(RefSup, #mq_properties{publisher_id = PubId,
         {ok,_Pid} ->
             case start_child_3(RefSup, Props, WorkerSeqNum, CnsProcsPerDB) of
                 ok ->
-                    start_child_2(RefSup, Props, WorkerSeqNum - 1);
-                Error ->
-                    Error
+                    start_child_2(RefSup, Props, WorkerSeqNum - 1)
             end;
         {error, Reason} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
