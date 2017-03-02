@@ -288,10 +288,8 @@ start_child_2(RefSup, #mq_properties{publisher_id = PubId,
                     {leo_mq_server, start_link, [PubId_1, WorkerSeqNum, Props]},
                     permanent, 2000, worker, [leo_mq_server]}) of
         {ok,_Pid} ->
-            case start_child_3(RefSup, Props, WorkerSeqNum, CnsProcsPerDB) of
-                ok ->
-                    start_child_2(RefSup, Props, WorkerSeqNum - 1)
-            end;
+            ok = start_child_3(RefSup, Props, WorkerSeqNum, CnsProcsPerDB),
+            start_child_2(RefSup, Props, WorkerSeqNum - 1);
         {error, Reason} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
