@@ -255,7 +255,7 @@ idling(_, From, State) ->
 
 -spec(idling(EventInfo, State) ->
              {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
-                                                                     State::#state{}).
+                                                  State::#state{}).
 idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
                                                publisher_id = PublisherId,
                                                batch_of_msgs = BatchOfMsgs,
@@ -506,8 +506,12 @@ consume(Id, Mod, SeqNum, NumOfBatchProcs) ->
     case leo_mq_server:peek(PubId) of
         {ok, KeyBin, MsgBin} ->
             try
-                erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]),
-                leo_mq_server:remove(PubId, KeyBin)
+                case erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]) of
+                    ok ->
+                        leo_mq_server:remove(PubId, KeyBin);
+                    _ ->
+                        ok
+                end
             catch
                 _:Reason ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
