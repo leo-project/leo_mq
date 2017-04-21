@@ -41,7 +41,7 @@
          code_change/3]).
 
 -export([enqueue/3, dequeue/1, close/1]).
--export([peek/1, remove/2]).
+-export([peek/1, peek/2, remove/2]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -106,6 +106,17 @@ dequeue(Id) ->
                                      MessageBin::binary()).
 peek(Id) ->
     gen_server:call(Id, peek, ?DEF_TIMEOUT).
+
+%% @doc Peek the first N items in a queuing data.
+%%
+-spec(peek(Id, N) ->
+             {ok, list({KeyBin, MessageBin})} | {error, any()} | not_found
+                                when Id::atom(),
+                                     N::pos_integer(),
+                                     KeyBin::binary(),
+                                     MessageBin::binary()).
+peek(Id, N) ->
+    gen_server:call(Id, {peek, N}, ?DEF_TIMEOUT).
 
 %% @doc Remove an item in a queuing data.
 %%
@@ -238,6 +249,35 @@ handle_call(peek, _From, #state{backend_db_id = BackendDbId} = State) ->
                              end,
 
                     {ok, Key, MsgBin};
+                not_found = Cause ->
+                    Cause;
+                {_, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "handle_call/3"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    {error, Cause}
+            end,
+    {reply, Reply, State, ?DEF_TIMEOUT};
+
+handle_call({peek, N}, _From, #state{backend_db_id = BackendDbId} = State) ->
+    Reply = case catch leo_backend_db_server:first_n(BackendDbId, N) of
+                {ok, List0} ->
+                    Fun = fun({Key, Val}) ->
+                                  %% Taking measure of queue-msg migration
+                                  %% for previsous 1.2.0-pre1
+                                  MsgTerm = binary_to_term(Val),
+                                  MsgBin = case is_tuple(MsgTerm) of
+                                               true when is_integer(element(1, MsgTerm)) andalso
+                                                         is_binary(element(2, MsgTerm)) ->
+                                                   element(2, MsgTerm);
+                                               _ ->
+                                                   Val
+                                           end,
+                                  {Key, MsgBin}
+                          end,
+                    List = lists:map(Fun, List0),
+                    {ok, List};
                 not_found = Cause ->
                     Cause;
                 {_, Cause} ->

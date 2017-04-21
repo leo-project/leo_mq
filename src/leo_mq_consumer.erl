@@ -487,47 +487,48 @@ consume(#state{mq_properties = #mq_properties{
           orelse IsForceExec) of
         true ->
             NumOfBatchProcs_1 = leo_math:ceiling(NumOfBatchProcs / NumOfProcs),
-            consume(PublisherId, Mod, SeqNum, NumOfBatchProcs_1);
+            PubId = ?publisher_id(PublisherId, SeqNum),
+            Ret = leo_mq_server:peek(PubId, NumOfBatchProcs_1),
+            case Ret of
+                {ok, List} ->
+                    consume(PublisherId, Mod, SeqNum, List);
+                Other ->
+                    Other
+            end;
         false ->
             {error, short_interval}
     end.
 
 %% @doc Consume a message
 %% @private
--spec(consume(Id, Mod, SeqNum, NumOfBatchProcs) ->
+-spec(consume(Id, Mod, SeqNum, List) ->
              ok | not_found | {error, any()} when Id::atom(),
                                                   Mod::atom(),
                                                   SeqNum::non_neg_integer(),
-                                                  NumOfBatchProcs::non_neg_integer()).
-consume(_Id,_,_,0) ->
+                                                  List::list({binary(), binary()})).
+consume(_Id,_,_,[]) ->
     ok;
-consume(Id, Mod, SeqNum, NumOfBatchProcs) ->
+consume(Id, Mod, SeqNum, [{KeyBin, MsgBin}|Rest]) ->
     PubId = ?publisher_id(Id, SeqNum),
-    case leo_mq_server:peek(PubId) of
-        {ok, KeyBin, MsgBin} ->
-            try
-                case erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]) of
-                    ok ->
-                        leo_mq_server:remove(PubId, KeyBin);
-                    _ ->
-                        ok
-                end
-            catch
-                _:Reason ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "consume/4"},
-                                            {line, ?LINE}, {body, [{module, Mod},
-                                                                   {id, Id},
-                                                                   {cause, Reason}
-                                                                  ]}])
-            after
-                consume(Id, Mod, SeqNum, NumOfBatchProcs - 1)
-            end;
-        Other ->
-            Other
+    try
+        case erlang:apply(Mod, handle_call, [{consume, Id, MsgBin}]) of
+            ok ->
+                leo_mq_server:remove(PubId, KeyBin);
+            _ ->
+                ok
+        end
+    catch
+        _:Reason ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "consume/4"},
+                                    {line, ?LINE}, {body, [{module, Mod},
+                                                           {id, Id},
+                                                           {cause, Reason}
+                                                          ]}])
+    after
+        consume(Id, Mod, SeqNum, Rest)
     end.
-
 
 %% @doc Defer a cosuming message
 %%
