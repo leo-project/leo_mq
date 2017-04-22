@@ -488,8 +488,7 @@ consume(#state{mq_properties = #mq_properties{
         true ->
             NumOfBatchProcs_1 = leo_math:ceiling(NumOfBatchProcs / NumOfProcs),
             PubId = ?publisher_id(PublisherId, SeqNum),
-            Ret = leo_mq_server:peek(PubId, NumOfBatchProcs_1),
-            case Ret of
+            case leo_mq_server:peek(PubId, NumOfBatchProcs_1) of
                 {ok, List} ->
                     consume(PublisherId, Mod, SeqNum, List);
                 Other ->
@@ -505,7 +504,9 @@ consume(#state{mq_properties = #mq_properties{
              ok | not_found | {error, any()} when Id::atom(),
                                                   Mod::atom(),
                                                   SeqNum::non_neg_integer(),
-                                                  List::list({binary(), binary()})).
+                                                  Key::binary(),
+                                                  Val::binary(),
+                                                  List::[{Key, Val}]).
 consume(_Id,_,_,[]) ->
     ok;
 consume(Id, Mod, SeqNum, [{KeyBin, MsgBin}|Rest]) ->
