@@ -31,6 +31,7 @@
 
 -export([new/2, new/3,
          publish/3, suspend/1, resume/1,
+         has_key/2,
          status/1,
          consumers/0,
          increase/1, decrease/1,
@@ -45,7 +46,6 @@
 %% API
 %%--------------------------------------------------------------------
 %% @doc Create a new message-queue server
-%%
 -spec(new(Id, Props) ->
              ok when Id::atom(),
                      Props::[atom()]|#mq_properties{}).
@@ -95,25 +95,24 @@ prop_list_to_mq_properties(Id, Mod, Props) ->
                  db_procs = DBProcs_1,
                  cns_procs_per_db = leo_misc:get_value(?MQ_PROP_CNS_PROCS_PER_DB, Props, ?DEF_PROP_CNS_PROCS_PER_DB),
                  root_path = leo_misc:get_value(?MQ_PROP_ROOT_PATH, Props, ?DEF_DB_ROOT_PATH),
+
                  %% interval between batchs
                  max_interval = leo_misc:get_value(?MQ_PROP_INTERVAL_MAX, Props, ?DEF_CONSUME_MAX_INTERVAL),
                  regular_interval = leo_misc:get_value(?MQ_PROP_INTERVAL_REG, Props, ?DEF_CONSUME_REG_INTERVAL),
+
                  %% batch of messages
                  max_batch_of_msgs = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_MAX, Props, ?DEF_CONSUME_MAX_BATCH_MSGS),
                  regular_batch_of_msgs = leo_misc:get_value(?MQ_PROP_BATCH_MSGS_REG, Props, ?DEF_CONSUME_REG_BATCH_MSGS),
+
                  %% num of steps
                  num_of_steps = leo_misc:get_value(?MQ_PROP_NUM_OF_STEPS, Props, ?DEF_CONSUME_NUM_OF_STEPS)},
-    {MQDBMessageId,
-     MQDBMessagePath} = ?backend_db_info(
-                           Id, Props_1#mq_properties.root_path),
-    Props_2 = Props_1#mq_properties{
-                mqdb_id = MQDBMessageId,
-                mqdb_path = MQDBMessagePath},
-    Props_2.
+    {MQDBMessageId, MQDBMessagePath} =
+        ?backend_db_info(Id, Props_1#mq_properties.root_path),
+    Props_1#mq_properties{mqdb_id = MQDBMessageId,
+                          mqdb_path = MQDBMessagePath}.
 
 
 %% @doc Publish a message into the queue
-%%
 -spec(publish(Id, KeyBin, MessageBin) ->
              ok | {error, any()} when Id::atom(),
                                       KeyBin::binary(),
@@ -129,7 +128,6 @@ publish(Id, KeyBin, MessageBin) ->
 
 
 %% @doc Suspend consumption of messages in the queue
-%%
 -spec(suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 suspend(Id) ->
@@ -141,7 +139,6 @@ suspend(Id, SeqNo, SubNo) ->
 
 
 %% @doc Resume consumption of messages in the queue
-%%
 -spec(resume(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
@@ -152,8 +149,21 @@ resume(Id, SeqNo, SubNo) ->
     ok.
 
 
+%% @doc Has the key of a message in the queue
+-spec(has_key(Id, KeyBin) ->
+             boolean() | {error, any()} when Id::atom(),
+                                             KeyBin::binary()).
+has_key(Id, KeyBin) ->
+    case leo_misc:get_env(leo_mq, {props, Id}) of
+        undefined ->
+            {error, not_initialized};
+        {ok, #mq_properties{db_procs = _DB_Procs}} ->
+            PubId = ?publisher_id(Id,_DB_Procs, KeyBin),
+            leo_mq_server:has_key(PubId, KeyBin)
+    end.
+
+
 %% @doc Retrieve a current state from the queue
-%%
 -spec(status(Id) ->
              {ok, [{atom(), any()}]} when Id::atom()).
 status(Id) ->
@@ -187,7 +197,6 @@ status(Id) ->
 
 
 %% @doc Retrieve registered consumers
-%%
 -spec(consumers() ->
              {ok, Consumers} when Consumers::[{ConsumerId,
                                                State, MsgCount}],
@@ -217,7 +226,6 @@ consumers_1([#mq_state{id = Id}|Rest], SoFar) ->
 
 
 %% @doc Increase the comsumption processing
-%%
 -spec(increase(Id) ->
              ok | {error, any()} when Id::atom()).
 increase(Id) ->
@@ -231,7 +239,6 @@ increase(Id, SeqNo, SubNo) ->
 
 
 %% @doc Decrease the comsumption processing
-%%
 -spec(decrease(Id) ->
              ok | {error, any()} when Id::atom()).
 decrease(Id) ->

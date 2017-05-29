@@ -41,7 +41,7 @@
          code_change/3]).
 
 -export([enqueue/3, dequeue/1, close/1]).
--export([peek/1, peek/2, remove/2]).
+-export([peek/1, peek/2, remove/2, has_key/2]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -72,6 +72,7 @@
 start_link(Id, WorkerSeqNum, Props) ->
     gen_server:start_link({local, Id}, ?MODULE, [Id, WorkerSeqNum, Props], []).
 
+
 %% @doc Close the process
 -spec(stop(Id) ->
              ok | {error, any()} when Id::atom()).
@@ -83,7 +84,6 @@ stop(Id) ->
 
 
 %% @doc Register a queuing data.
-%%
 -spec(enqueue(Id, KeyBin, MessageBin) ->
              ok | {error, any()} when Id::atom(),
                                       KeyBin::binary(),
@@ -93,12 +93,11 @@ enqueue(Id, KeyBin, MessageBin) ->
 
 
 %% @doc Register a queuing data.
-%%
 dequeue(Id) ->
     gen_server:call(Id, dequeue, ?DEF_TIMEOUT).
 
+
 %% @doc Peek an item in a queuing data.
-%%
 -spec(peek(Id) ->
              {ok, KeyBin, MessageBin} | {error, any()} | not_found
                                 when Id::atom(),
@@ -108,7 +107,6 @@ peek(Id) ->
     gen_server:call(Id, peek, ?DEF_TIMEOUT).
 
 %% @doc Peek the first N items in a queuing data.
-%%
 -spec(peek(Id, N) ->
              {ok, list({KeyBin, MessageBin})} | {error, any()} | not_found
                                 when Id::atom(),
@@ -118,24 +116,24 @@ peek(Id) ->
 peek(Id, N) ->
     gen_server:call(Id, {peek, N}, ?DEF_TIMEOUT).
 
+
 %% @doc Remove an item in a queuing data.
-%%
 -spec(remove(Id, KeyBin) ->
              ok | {error, any()} when Id::atom(),
                                       KeyBin::binary()).
 remove(Id, KeyBin) ->
     gen_server:call(Id, {remove, KeyBin}, ?DEF_TIMEOUT).
 
-%% @doc Retrieve the current state from the queue.
-%%
-%% -spec(status(Id) ->
-%%              {ok, [{atom(), any()}]} when Id::atom()).
-%% status(Id) ->
-%%     gen_server:call(Id, status, ?DEF_TIMEOUT).
+
+%% @doc Has the key of a message in the queue.
+-spec(has_key(Id, KeyBin) ->
+             boolean() | {error, any()} when Id::atom(),
+                                             KeyBin::binary()).
+has_key(Id, KeyBin) ->
+    gen_server:call(Id, {has_key, KeyBin}, ?DEF_TIMEOUT).
 
 
 %% @doc get state from the queue.
-%%
 -spec(close(Id) ->
              ok when Id::atom()).
 close(Id) ->
@@ -293,6 +291,21 @@ handle_call({remove, KeyBin}, _From, #state{backend_db_id = BackendDbId} = State
     Reply = case catch leo_backend_db_server:delete(BackendDbId, KeyBin) of
                 ok ->
                     ok;
+                {_, Why} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "handle_call/3"},
+                                            {line, ?LINE}, {body, Why}]),
+                    {error, Why}
+            end,
+    {reply, Reply, State, ?DEF_TIMEOUT};
+
+handle_call({has_key, KeyBin}, _From, #state{backend_db_id = BackendDbId} = State) ->
+    Reply = case catch leo_backend_db_server:get(BackendDbId, KeyBin) of
+                {ok,_} ->
+                    true;
+                not_found ->
+                    false;
                 {_, Why} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},

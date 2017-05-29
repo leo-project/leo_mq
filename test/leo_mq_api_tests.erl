@@ -33,6 +33,7 @@
 -define(TEST_KEY_3, "air/on/g/string_3").
 -define(TEST_KEY_4, "air/on/g/string_4").
 -define(TEST_KEY_5, "air/on/g/string_5").
+-define(TEST_KEY_6, "air/on/g/string_6").
 -define(TEST_META_1, [{key,       ?TEST_KEY_1},
                       {vnode_id,  1},
                       {clock,     9},
@@ -136,6 +137,19 @@ publish_1() ->
            ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_4), term_to_binary(?TEST_META_4)),
     ok = leo_mq_api:publish(
            ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_5), term_to_binary(?TEST_META_5)),
+
+    true = leo_mq_api:has_key(
+             ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_1)),
+    true = leo_mq_api:has_key(
+             ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_2)),
+    true = leo_mq_api:has_key(
+             ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_3)),
+    true = leo_mq_api:has_key(
+             ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_4)),
+    true = leo_mq_api:has_key(
+             ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_5)),
+    false = leo_mq_api:has_key(
+              ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_6)),
 
     timer:sleep(timer:seconds(1)),
     ok = check_state(),
