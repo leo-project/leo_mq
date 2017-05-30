@@ -181,7 +181,7 @@ init([Id, WorkerSeqNum, #mq_properties{db_name = DBName,
                                                         "_message_",
                                                         integer_to_list(SeqNum)
                                                        ])),
-                        mq_properties = MQProps}, ?DEF_TIMEOUT}
+                        mq_properties = MQProps}}
     end.
 
 
@@ -194,7 +194,7 @@ handle_call({enqueue, KeyBin, MessageBin}, _From, #state{backend_db_id = Backend
             _ ->
                 ok
         end,
-    {reply, Reply_1, State, ?DEF_TIMEOUT};
+    {reply, Reply_1, State};
 
 handle_call(dequeue, _From, #state{backend_db_id = BackendDbId} = State) ->
     Reply = case catch leo_backend_db_server:first(BackendDbId) of
@@ -230,7 +230,7 @@ handle_call(dequeue, _From, #state{backend_db_id = BackendDbId} = State) ->
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end,
-    {reply, Reply, State, ?DEF_TIMEOUT};
+    {reply, Reply, State};
 
 handle_call(peek, _From, #state{backend_db_id = BackendDbId} = State) ->
     Reply = case catch leo_backend_db_server:first(BackendDbId) of
@@ -256,7 +256,7 @@ handle_call(peek, _From, #state{backend_db_id = BackendDbId} = State) ->
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end,
-    {reply, Reply, State, ?DEF_TIMEOUT};
+    {reply, Reply, State};
 
 handle_call({peek, N}, _From, #state{backend_db_id = BackendDbId} = State) ->
     Reply = case catch leo_backend_db_server:first_n(BackendDbId, N) of
@@ -285,7 +285,7 @@ handle_call({peek, N}, _From, #state{backend_db_id = BackendDbId} = State) ->
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end,
-    {reply, Reply, State, ?DEF_TIMEOUT};
+    {reply, Reply, State};
 
 handle_call({remove, KeyBin}, _From, #state{backend_db_id = BackendDbId} = State) ->
     Reply = case catch leo_backend_db_server:delete(BackendDbId, KeyBin) of
@@ -298,7 +298,7 @@ handle_call({remove, KeyBin}, _From, #state{backend_db_id = BackendDbId} = State
                                             {line, ?LINE}, {body, Why}]),
                     {error, Why}
             end,
-    {reply, Reply, State, ?DEF_TIMEOUT};
+    {reply, Reply, State};
 
 handle_call({has_key, KeyBin}, _From, #state{backend_db_id = BackendDbId} = State) ->
     Reply = case catch leo_backend_db_server:get(BackendDbId, KeyBin) of
@@ -313,7 +313,7 @@ handle_call({has_key, KeyBin}, _From, #state{backend_db_id = BackendDbId} = Stat
                                             {line, ?LINE}, {body, Why}]),
                     {error, Why}
             end,
-    {reply, Reply, State, ?DEF_TIMEOUT};
+    {reply, Reply, State};
 
 %% handle_call(status, _From, #state{count = Count} = State) ->
 %%     {reply, {ok, Count}, State, ?DEF_TIMEOUT};
@@ -321,21 +321,21 @@ handle_call({has_key, KeyBin}, _From, #state{backend_db_id = BackendDbId} = Stat
 handle_call(close, _From, #state{mq_properties = MQProps} = State) ->
     MQDBMessageId = MQProps#mq_properties.mqdb_id,
     ok = close_db(MQDBMessageId),
-    {reply, ok, State, ?DEF_TIMEOUT};
+    {reply, ok, State};
 
 handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State}.
 
 
 handle_cast(_Msg, State) ->
-    {noreply, State, ?DEF_TIMEOUT}.
+    {noreply, State}.
 
 
 %% @doc gen_server callback - Module:handle_info(Info, State) -> Result
 handle_info(timeout, State) ->
-    {noreply, State, ?DEF_TIMEOUT};
+    {noreply, State};
 handle_info(_Info, State) ->
-    {noreply, State, ?DEF_TIMEOUT}.
+    {noreply, State}.
 
 
 %% @doc This function is called by a gen_server when it is about to
