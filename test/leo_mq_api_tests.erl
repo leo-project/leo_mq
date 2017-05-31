@@ -277,8 +277,10 @@ pub_sub_1() ->
     {ok, Stats} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
     ?debugVal(Stats),
 
-    TotalMsgs_1 = leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats),
-    ?assertEqual(true, TotalMsgs_1 > 0),
+    % `TotalMsgs_1 > 0` no longer true because now the value get retrieved from a memory cache
+    % and updated only when update_consumer_stats invoked.
+    %TotalMsgs_1 = leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats),
+    %?assertEqual(true, TotalMsgs_1 > 0),
 
     %% suspend the message consumption
     timer:sleep(timer:seconds(1)),

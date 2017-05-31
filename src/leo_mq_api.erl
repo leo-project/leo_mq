@@ -167,28 +167,20 @@ has_key(Id, KeyBin) ->
 -spec(status(Id) ->
              {ok, [{atom(), any()}]} when Id::atom()).
 status(Id) ->
-    Ret = case leo_backend_db_api:status(?backend_db_info(Id)) of
-              not_found ->
-                  0;
-              DBStat ->
-                  lists:foldl(fun([{key_count, Count}], Acc) ->
-                                      Acc + Count
-                              end, 0, DBStat)
-          end,
-    {State_2, BatchOfMsgs_1, Interval_1} =
+    {State_2, BatchOfMsgs_1, Interval_1, NumOfMsgs_1} =
         case leo_misc:get_env(leo_mq, {state, Id}) of
             undefined ->
-                {?ST_IDLING, 0, 0};
-            {ok, {State, BatchOfMsgs, Interval}} ->
-                State_1 = case (Ret < 1) of
+                {?ST_IDLING, 0, 0, 0};
+            {ok, {State, BatchOfMsgs, Interval, NumOfMsgs}} ->
+                State_1 = case (NumOfMsgs < 1) of
                               true ->
                                   ?ST_IDLING;
                               false ->
                                   State
                           end,
-                {State_1, BatchOfMsgs, Interval}
+                {State_1, BatchOfMsgs, Interval, NumOfMsgs}
         end,
-    {ok, [{?MQ_CNS_PROP_NUM_OF_MSGS, Ret},
+    {ok, [{?MQ_CNS_PROP_NUM_OF_MSGS, NumOfMsgs_1},
           {?MQ_CNS_PROP_STATUS, State_2},
           {?MQ_CNS_PROP_BATCH_OF_MSGS, BatchOfMsgs_1},
           {?MQ_CNS_PROP_INTERVAL, Interval_1}
@@ -257,22 +249,23 @@ decrease(Id, SeqNo, SubNo) ->
                      BatchOfMsgs::non_neg_integer(),
                      Interval::non_neg_integer()).
 update_consumer_stats(PubId, State, BatchOfMsgs, Interval) ->
-    State_1 = case leo_backend_db_api:status(
-                     ?backend_db_info(PubId)) of
-                  not_found ->
-                      ?ST_IDLING;
-                  DBStat ->
-                      case (lists:foldl(fun([{key_count, Count}], Acc) ->
+    {State_1, NumOfMsgs_1} =
+        case leo_backend_db_api:status(?backend_db_info(PubId)) of
+            not_found ->
+                {?ST_IDLING, 0};
+            DBStat ->
+                NumOfMsgs = lists:foldl(fun([{key_count, Count}], Acc) ->
                                                 Acc + Count
-                                        end, 0, DBStat) > 0) of
-                          true ->
-                              State;
-                          false ->
-                              ?ST_IDLING
-                      end
-              end,
+                                        end, 0, DBStat),
+                case NumOfMsgs > 0 of
+                    true ->
+                        {State, NumOfMsgs};
+                    false ->
+                        {?ST_IDLING, NumOfMsgs}
+                end
+        end,
     leo_misc:set_env(leo_mq, {state, PubId},
-                     {State_1, BatchOfMsgs, Interval}).
+                     {State_1, BatchOfMsgs, Interval, NumOfMsgs_1}).
 
 
 %%--------------------------------------------------------------------
