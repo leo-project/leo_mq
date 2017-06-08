@@ -151,12 +151,19 @@ publish_1() ->
     false = leo_mq_api:has_key(
               ?QUEUE_ID_PUBLISHER, list_to_binary(?TEST_KEY_6)),
 
+    {ok, TotalMsgs} = leo_mq_api:count(?QUEUE_ID_PUBLISHER),
+    ?assertEqual(5, TotalMsgs),
+    ?debugVal(TotalMsgs),
+
+    {ok, Stats_1} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?debugVal(Stats_1),
+
     timer:sleep(timer:seconds(1)),
     ok = check_state(),
 
-    {ok, Stats} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
-    ?debugVal(Stats),
-    Count = leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats),
+    {ok, Stats_2} = leo_mq_api:status(?QUEUE_ID_PUBLISHER),
+    ?debugVal(Stats_2),
+    Count = leo_misc:get_value(?MQ_CNS_PROP_NUM_OF_MSGS, Stats_2),
     ?assertEqual(0, Count),
 
     meck:unload(),

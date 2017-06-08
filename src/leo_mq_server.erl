@@ -41,7 +41,7 @@
          code_change/3]).
 
 -export([enqueue/3, dequeue/1, close/1]).
--export([peek/1, peek/2, remove/2, has_key/2]).
+-export([peek/1, peek/2, remove/2, has_key/2, count/1]).
 
 -ifdef(TEST).
 -define(CURRENT_TIME, 65432100000).
@@ -131,6 +131,15 @@ remove(Id, KeyBin) ->
                                              KeyBin::binary()).
 has_key(Id, KeyBin) ->
     gen_server:call(Id, {has_key, KeyBin}, ?DEF_TIMEOUT).
+
+
+%% @doc Retrieve a total number of messages
+-spec(count(Id) ->
+             {ok, Count} |
+             {error, any()} when Id::atom(),
+                                 Count::non_neg_integer()).
+count(Id) ->
+    gen_server:call(Id, count, ?DEF_TIMEOUT).
 
 
 %% @doc get state from the queue.
@@ -306,6 +315,19 @@ handle_call({has_key, KeyBin}, _From, #state{backend_db_id = BackendDbId} = Stat
                     true;
                 not_found ->
                     false;
+                {_, Why} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "handle_call/3"},
+                                            {line, ?LINE}, {body, Why}]),
+                    {error, Why}
+            end,
+    {reply, Reply, State};
+
+handle_call(count, _From, #state{backend_db_id = BackendDbId} = State) ->
+    Reply = case catch leo_backend_db_server:count(BackendDbId) of
+                {ok, Count} ->
+                    {ok, Count};
                 {_, Why} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},

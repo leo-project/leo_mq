@@ -32,6 +32,7 @@
 -export([new/2, new/3,
          publish/3, suspend/1, resume/1,
          has_key/2,
+         count/1,
          status/1,
          consumers/0,
          increase/1, decrease/1,
@@ -160,6 +161,31 @@ has_key(Id, KeyBin) ->
         {ok, #mq_properties{db_procs = _DB_Procs}} ->
             PubId = ?publisher_id(Id,_DB_Procs, KeyBin),
             leo_mq_server:has_key(PubId, KeyBin)
+    end.
+
+
+%% @doc Retrieve a total number of messages
+-spec(count(Id) ->
+             {ok, Count} | {error, any()} when Id::atom(),
+                                               Count::non_neg_integer()).
+count(Id) ->
+    case leo_misc:get_env(leo_mq, {props, Id}) of
+        undefined ->
+            {error, not_initialized};
+        {ok, #mq_properties{db_procs = TotalDBs}} ->
+            Cnt = lists:map(
+                    fun(I) ->
+                            case leo_mq_server:count(?publisher_id(Id, I)) of
+                                {error, unsupported} ->
+                                    0;
+                                C ->
+                                    C
+                            end
+                    end, lists:seq(1, TotalDBs)),
+            Sum = lists:foldl(fun({ok, N}, C) ->
+                                      N + C
+                              end, 0, Cnt),
+            {ok, Sum}
     end.
 
 
