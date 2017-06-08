@@ -173,18 +173,16 @@ count(Id) ->
         undefined ->
             {error, not_initialized};
         {ok, #mq_properties{db_procs = TotalDBs}} ->
-            Cnt = lists:map(
-                    fun(I) ->
-                            case leo_mq_server:count(?publisher_id(Id, I)) of
-                                {error, unsupported} ->
-                                    0;
-                                C ->
-                                    C
-                            end
-                    end, lists:seq(1, TotalDBs)),
-            Sum = lists:foldl(fun({ok, N}, C) ->
-                                      N + C
-                              end, 0, Cnt),
+            Sum = lists:foldl(
+                    fun(I, N) ->
+                            Ret = case leo_mq_server:count(?publisher_id(Id, I)) of
+                                      {error, unsupported} ->
+                                          0;
+                                      {ok, C} ->
+                                          C
+                                  end,
+                            N + Ret
+                    end, 0, lists:seq(1, TotalDBs)),
             {ok, Sum}
     end.
 
