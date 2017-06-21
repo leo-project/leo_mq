@@ -268,7 +268,10 @@ handle_call(peek, _From, #state{backend_db_id = BackendDbId} = State) ->
     {reply, Reply, State};
 
 handle_call({peek, N}, _From, #state{backend_db_id = BackendDbId} = State) ->
-    Reply = case catch leo_backend_db_server:first_n(BackendDbId, N) of
+    Condition = fun(_K,_V) ->
+                        true
+                end,
+    Reply = case catch leo_backend_db_server:first_n(BackendDbId, N, Condition) of
                 {ok, List0} ->
                     Fun = fun({Key, Val}) ->
                                   %% Taking measure of queue-msg migration
