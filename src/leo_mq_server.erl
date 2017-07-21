@@ -328,8 +328,8 @@ handle_call({has_key, KeyBin}, _From, #state{backend_db_id = BackendDbId} = Stat
     {reply, Reply, State};
 
 handle_call(count, _From, #state{backend_db_id = BackendDbId} = State) ->
-    Reply = case catch leo_backend_db_server:count(BackendDbId) of
-                {ok, Count} ->
+    Reply = case catch leo_backend_db_server:status(BackendDbId) of
+                [{key_count, Count}|_] ->
                     {ok, Count};
                 {_, Why} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
