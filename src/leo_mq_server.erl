@@ -196,14 +196,10 @@ init([Id, WorkerSeqNum, #mq_properties{db_name = DBName,
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
 handle_call({enqueue, KeyBin, MessageBin}, _From, #state{backend_db_id = BackendDbId} = State) ->
-    Reply_1 =
-        case leo_backend_db_server:get(BackendDbId, KeyBin) of
-            not_found ->
-                put_message(KeyBin, MessageBin, BackendDbId);
-            _ ->
-                ok
-        end,
-    {reply, Reply_1, State};
+    %% Insert/overwrite the latest MQ's message of an object because its message includes 'metadata'
+    %% in case of object-recovery to keep its object's consistency
+    Reply = put_message(KeyBin, MessageBin, BackendDbId),
+    {reply, Reply, State};
 
 handle_call(dequeue, _From, #state{backend_db_id = BackendDbId} = State) ->
     Reply = case catch leo_backend_db_server:first(BackendDbId) of
