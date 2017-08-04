@@ -173,7 +173,7 @@ init([Id, WorkerSeqNum, #mq_properties{db_name = DBName,
                 undefined ->
                     leo_backend_db_sup:start_child(
                       leo_backend_db_sup, MQDBMessageId,
-                      DBProcs, DBName, MQDBMessagePath);
+                      DBProcs, DBName, MQDBMessagePath, true);
                 _ ->
                     void
             end,
