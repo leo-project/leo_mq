@@ -104,8 +104,12 @@ after_proc(Error) ->
 %% @private
 close_db([]) ->
     ok;
+close_db([{Id,_Pid, worker, ['leo_mq_consumer'|_]}|T]) ->
+    supervisor:terminate_child(?MODULE, Id),
+    close_db(T);
 close_db([{Id,_Pid, worker, ['leo_mq_server' = Mod|_]}|T]) ->
     ok = Mod:close(Id),
+    supervisor:terminate_child(?MODULE, Id),
     close_db(T);
 close_db([_|T]) ->
     close_db(T).
