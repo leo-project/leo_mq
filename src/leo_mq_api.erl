@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -209,7 +209,7 @@ status(Id) ->
           {?MQ_CNS_PROP_BATCH_OF_MSGS, BatchOfMsgs_1},
           {?MQ_CNS_PROP_INTERVAL, Interval_1}
          ]}.
-    %% end.
+%% end.
 
 
 %% @doc Retrieve registered consumers
@@ -220,7 +220,7 @@ status(Id) ->
                                   State::state_of_mq(),
                                   MsgCount::non_neg_integer()).
 consumers() ->
-    case supervisor:which_children(leo_mq_sup) of
+    case supervisor2:which_children(leo_mq_sup) of
         [] ->
             {ok, []};
         Children ->
@@ -307,10 +307,10 @@ start_child_2(_,_,0) ->
 start_child_2(RefSup, #mq_properties{publisher_id = PubId,
                                      cns_procs_per_db = CnsProcsPerDB} = Props, WorkerSeqNum) ->
     PubId_1 = ?publisher_id(PubId, WorkerSeqNum),
-    case supervisor:start_child(
+    case supervisor2:start_child(
            RefSup, {PubId_1,
                     {leo_mq_server, start_link, [PubId_1, WorkerSeqNum, Props]},
-                    permanent, 2000, worker, [leo_mq_server]}) of
+                    {permanent, 2}, 2000, worker, [leo_mq_server]}) of
         {ok,_Pid} ->
             ok = start_child_3(RefSup, Props, WorkerSeqNum, CnsProcsPerDB),
             start_child_2(RefSup, Props, WorkerSeqNum - 1);
@@ -334,11 +334,11 @@ start_child_3(RefSup, #mq_properties{publisher_id = PubId} = Props,
               WorkerSeqNum, CnsProcsPerDB) ->
     ConsumerId = ?consumer_id(PubId, WorkerSeqNum, CnsProcsPerDB),
 
-    case supervisor:start_child(
+    case supervisor2:start_child(
            RefSup, {ConsumerId,
                     {leo_mq_consumer, start_link,
                      [ConsumerId, PubId, Props, WorkerSeqNum]},
-                    permanent, 2000, worker, [leo_mq_consumer]}) of
+                    {permanent, 2}, 2000, worker, [leo_mq_consumer]}) of
         {ok, _Pid} ->
             start_child_3(RefSup, Props, WorkerSeqNum, (CnsProcsPerDB - 1));
         {error, Cause} ->

@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -40,7 +40,7 @@
 %% @doc Creates a supervisor process as part of a supervision tree
 %% @end
 start_link() ->
-    Res = supervisor:start_link({local, ?MODULE}, ?MODULE, []),
+    Res = supervisor2:start_link({local, ?MODULE}, ?MODULE, []),
     after_proc(Res).
 
 
@@ -49,7 +49,7 @@ start_link() ->
 stop() ->
     case whereis(?MODULE) of
         Pid when is_pid(Pid) == true ->
-            List = supervisor:which_children(Pid),
+            List = supervisor2:which_children(Pid),
             ok = close_db(List),
             ok;
         _ -> not_started
@@ -79,8 +79,8 @@ after_proc({ok, RefSup}) ->
         undefined ->
             ChildSpec = {leo_backend_db_sup,
                          {leo_backend_db_sup, start_link, []},
-                         permanent, 2000, supervisor, [leo_backend_db_sup]},
-            case supervisor:start_child(RefSup, ChildSpec) of
+                         {permanent, 2}, 2000, supervisor, [leo_backend_db_sup]},
+            case supervisor2:start_child(RefSup, ChildSpec) of
                 {ok, Pid} ->
                     Pid;
                 {error, Cause} ->
@@ -105,11 +105,11 @@ after_proc(Error) ->
 close_db([]) ->
     ok;
 close_db([{Id,_Pid, worker, ['leo_mq_consumer'|_]}|T]) ->
-    supervisor:terminate_child(?MODULE, Id),
+    supervisor2:terminate_child(?MODULE, Id),
     close_db(T);
 close_db([{Id,_Pid, worker, ['leo_mq_server' = Mod|_]}|T]) ->
     ok = Mod:close(Id),
-    supervisor:terminate_child(?MODULE, Id),
+    supervisor2:terminate_child(?MODULE, Id),
     close_db(T);
 close_db([_|T]) ->
     close_db(T).

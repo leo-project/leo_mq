@@ -2,7 +2,7 @@
 %%
 %% Leo MQ
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -100,19 +100,19 @@ dequeue(Id) ->
 %% @doc Peek an item in a queuing data.
 -spec(peek(Id) ->
              {ok, KeyBin, MessageBin} | {error, any()} | not_found
-                                when Id::atom(),
-                                     KeyBin::binary(),
-                                     MessageBin::binary()).
+                 when Id::atom(),
+                      KeyBin::binary(),
+                      MessageBin::binary()).
 peek(Id) ->
     gen_server:call(Id, peek, ?DEF_TIMEOUT).
 
 %% @doc Peek the first N items in a queuing data.
 -spec(peek(Id, N) ->
              {ok, list({KeyBin, MessageBin})} | {error, any()} | not_found
-                                when Id::atom(),
-                                     N::pos_integer(),
-                                     KeyBin::binary(),
-                                     MessageBin::binary()).
+                 when Id::atom(),
+                      N::pos_integer(),
+                      KeyBin::binary(),
+                      MessageBin::binary()).
 peek(Id, N) ->
     gen_server:call(Id, {peek, N}, ?DEF_TIMEOUT).
 
@@ -417,7 +417,7 @@ close_db(InstanseName) ->
         undefined ->
             ok;
         _Pid ->
-            List = supervisor:which_children(SupRef),
+            List = supervisor2:which_children(SupRef),
             ok = close_db(List, InstanseName),
             ok
     end.
