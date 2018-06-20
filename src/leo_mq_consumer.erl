@@ -51,7 +51,8 @@
 
 -export([idling/2, idling/3,
          running/2, running/3,
-         suspending/2, suspending/3,
+         suspending_auto/2, suspending_auto/3,
+         suspending_force/2, suspending_force/3,
          defer_consume/3
         ]).
 
@@ -314,7 +315,7 @@ running(#event_info{event = ?EVENT_RUN,
 running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
                                                     batch_of_msgs = BatchOfMsgs,
                                                     interval = Interval} = State) ->
-    NextStatus = ?ST_SUSPENDING,
+    NextStatus = ?ST_SUSPENDING_FORCE,
     ok = leo_mq_api:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = NextStatus}};
@@ -354,7 +355,7 @@ running(#event_info{event = ?EVENT_DECR},
     {NextStatus, BatchOfMsgs_1} =
         case (BatchOfMsgs =< 0) of
             true ->
-                {?ST_SUSPENDING, 0};
+                {?ST_SUSPENDING_AUTO, 0};
             false ->
                 {?ST_RUNNING,
                  decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs)}
@@ -379,13 +380,13 @@ running(_, From, State) ->
     {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}}.
 
 
-%% @doc State of 'suspend'
+%% @doc State of 'suspend_auto'
 %%
--spec(suspending(EventInfo, State) ->
-             {next_state, ?ST_SUSPENDING, State}
+-spec(suspending_auto(EventInfo, State) ->
+             {next_state, ?ST_SUSPENDING_AUTO, State}
                  when EventInfo::#event_info{},
                       State::#state{}).
-suspending(#event_info{event = ?EVENT_INCR},
+suspending_auto(#event_info{event = ?EVENT_INCR},
            #state{id = Id,
                   publisher_id = PublisherId,
                   mq_properties = MQProps,
@@ -407,15 +408,15 @@ suspending(#event_info{event = ?EVENT_INCR},
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1}};
-suspending(_, State) ->
-    {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}}.
+suspending_auto(_, State) ->
+    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}}.
 
--spec(suspending(EventInfo, From, State) ->
-             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State}
+-spec(suspending_auto(EventInfo, From, State) ->
+             {next_state, ?ST_SUSPENDING_AUTO | ?ST_RUNNING, State}
                  when EventInfo::#event_info{},
                       From::{pid(),Tag::atom()},
                       State::#state{}).
-suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
+suspending_auto(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
                                                             publisher_id = PublisherId,
                                                             batch_of_msgs = BatchOfMsgs,
                                                             interval = Interval} = State) ->
@@ -423,13 +424,41 @@ suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
     ok = run(Id),
     ok = leo_mq_api:update_consumer_stats(PublisherId, ?ST_RUNNING, BatchOfMsgs, Interval),
     {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}};
-suspending(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
+suspending_auto(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
     gen_fsm:reply(From, {ok, Status}),
-    {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}};
-suspending(_Other, From, State) ->
+    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}};
+suspending_auto(_Other, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}}.
+    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}}.
 
+%% @doc State of 'suspending_force'
+%%
+-spec(suspending_force(EventInfo, State) ->
+             {next_state, ?ST_SUSPENDING_AUTO, State}
+                 when EventInfo::#event_info{},
+                      State::#state{}).
+suspending_force(_, State) ->
+    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}}.
+
+-spec(suspending_force(EventInfo, From, State) ->
+             {next_state, ?ST_SUSPENDING_AUTO | ?ST_RUNNING, State}
+                 when EventInfo::#event_info{},
+                      From::{pid(),Tag::atom()},
+                      State::#state{}).
+suspending_force(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
+                                                            publisher_id = PublisherId,
+                                                            batch_of_msgs = BatchOfMsgs,
+                                                            interval = Interval} = State) ->
+    gen_fsm:reply(From, ok),
+    ok = run(Id),
+    ok = leo_mq_api:update_consumer_stats(PublisherId, ?ST_RUNNING, BatchOfMsgs, Interval),
+    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}};
+suspending_force(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
+    gen_fsm:reply(From, {ok, Status}),
+    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}};
+suspending_force(_Other, From, State) ->
+    gen_fsm:reply(From, {error, badstate}),
+    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}}.
 
 %%--------------------------------------------------------------------
 %% Inner Functions
