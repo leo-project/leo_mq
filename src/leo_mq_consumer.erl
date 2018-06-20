@@ -265,6 +265,13 @@ idling(#event_info{event = ?EVENT_DECR},
     {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING,
                                          batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1}};
+idling(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
+                                                   batch_of_msgs = BatchOfMsgs,
+                                                   interval = Interval} = State) ->
+    NextStatus = ?ST_SUSPENDING_FORCE,
+    ok = leo_mq_api:update_consumer_stats(
+           PublisherId, NextStatus, BatchOfMsgs, Interval),
+    {next_state, NextStatus, State#state{status = NextStatus}};
 idling(_, State) ->
     {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING}}.
 
