@@ -309,7 +309,7 @@ running(#event_info{event = ?EVENT_RUN,
                     false ->
                         timer:sleep(Interval)
                 end,
-                _ = spawn(?MODULE, run, [Id]),
+                ok = run(Id),
                 {?ST_RUNNING, State};
             %% Reached end of the object-container
             not_found ->
@@ -426,7 +426,7 @@ suspending(#event_info{event = ?EVENT_INCR},
 
     %% To the next status
     ok = timer:sleep(Interval_1),
-    _ = spawn(?MODULE, run, [Id]),
+    ok = run(Id),
 
     NextStatus = ?ST_RUNNING,
     ok = leo_mq_api:update_consumer_stats(
