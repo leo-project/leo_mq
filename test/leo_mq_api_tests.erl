@@ -296,11 +296,11 @@ pub_sub_1() ->
 
     {ok, State_1} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
     ?debugVal(State_1),
-    ?assertEqual(?ST_SUSPENDING, State_1),
+    ?assertEqual(?ST_SUSPENDING_FORCE, State_1),
 
     {ok, [Consumers_1|_]} = leo_mq_api:consumers(),
     ?debugVal(Consumers_1),
-    ?assertEqual(?ST_SUSPENDING, leo_misc:get_value(?MQ_CNS_PROP_STATUS, Consumers_1#mq_state.state)),
+    ?assertEqual(?ST_SUSPENDING_FORCE, leo_misc:get_value(?MQ_CNS_PROP_STATUS, Consumers_1#mq_state.state)),
 
     %% resume the message consumption
     timer:sleep(timer:seconds(1)),
@@ -311,7 +311,7 @@ pub_sub_1() ->
     [ok = leo_mq_api:decrease(?QUEUE_ID_PUBLISHER) || _N <- lists:seq(1, 12)],
     timer:sleep(timer:seconds(5)),
     {ok, State_2} = leo_mq_consumer:state(?QUEUE_ID_CONSUMER),
-    ?assertEqual(?ST_SUSPENDING, State_2),
+    ?assertEqual(?ST_SUSPENDING_AUTO, State_2),
 
     %% check current status
     timer:sleep(timer:seconds(10)),
