@@ -234,18 +234,6 @@ format_status(_Opt, [_PDict, State]) ->
                  when EventInfo::#event_info{},
                       From::{pid(), atom()},
                       State::#state{}).
-idling(#event_info{event = ?EVENT_RUN}, From, #state{id = Id,
-                                                     publisher_id = PublisherId,
-                                                     batch_of_msgs = BatchOfMsgs,
-                                                     interval = Interval} = State) ->
-    NextStatus = ?ST_RUNNING,
-    State_1 = State#state{status = ?ST_IDLING,
-                          prev_proc_time = 0,
-                          start_datetime = leo_date:now()},
-    gen_fsm:reply(From, ok),
-    ok = run(Id),
-    ok = leo_mq_api:update_consumer_stats(PublisherId, NextStatus, BatchOfMsgs, Interval),
-    {next_state, NextStatus, State_1};
 idling(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
     gen_fsm:reply(From, {ok, Status}),
     {next_state, ?ST_IDLING, State#state{status = Status}};
@@ -265,15 +253,6 @@ idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
     ok = leo_mq_api:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = ?ST_IDLING}};
-
-idling(#event_info{event = ?EVENT_INCR},
-       #state{mq_properties = #mq_properties{regular_batch_of_msgs = BatchOfMsgs,
-                                             regular_interval = Interval}} = State) ->
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus,
-                                         batch_of_msgs = BatchOfMsgs,
-                                         interval = Interval}};
-
 idling(#event_info{event = ?EVENT_DECR},
        #state{mq_properties = MQProps,
               batch_of_msgs = BatchOfMsgs,
@@ -406,12 +385,6 @@ running(_, From, State) ->
              {next_state, ?ST_SUSPENDING, State}
                  when EventInfo::#event_info{},
                       State::#state{}).
-suspending(#event_info{event = ?EVENT_RUN}, State) ->
-    {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}};
-
-suspending(#event_info{event = ?EVENT_STATE}, State) ->
-    {next_state, ?ST_SUSPENDING, State#state{status = ?ST_SUSPENDING}};
-
 suspending(#event_info{event = ?EVENT_INCR},
            #state{id = Id,
                   publisher_id = PublisherId,
