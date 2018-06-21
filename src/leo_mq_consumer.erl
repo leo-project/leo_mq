@@ -441,14 +441,14 @@ suspending_auto(_Other, From, State) ->
 %% @doc State of 'suspending_force'
 %%
 -spec(suspending_force(EventInfo, State) ->
-             {next_state, ?ST_SUSPENDING_AUTO, State}
+             {next_state, ?ST_SUSPENDING_FORCE, State}
                  when EventInfo::#event_info{},
                       State::#state{}).
 suspending_force(_, State) ->
-    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}}.
+    {next_state, ?ST_SUSPENDING_FORCE, State#state{status = ?ST_SUSPENDING_FORCE}}.
 
 -spec(suspending_force(EventInfo, From, State) ->
-             {next_state, ?ST_SUSPENDING_AUTO | ?ST_RUNNING, State}
+             {next_state, ?ST_SUSPENDING_FORCE| ?ST_RUNNING, State}
                  when EventInfo::#event_info{},
                       From::{pid(),Tag::atom()},
                       State::#state{}).
@@ -462,10 +462,10 @@ suspending_force(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
     {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}};
 suspending_force(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
     gen_fsm:reply(From, {ok, Status}),
-    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}};
+    {next_state, ?ST_SUSPENDING_FORCE, State#state{status = ?ST_SUSPENDING_FORCE}};
 suspending_force(_Other, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}}.
+    {next_state, ?ST_SUSPENDING_FORCE, State#state{status = ?ST_SUSPENDING_FORCE}}.
 
 %%--------------------------------------------------------------------
 %% Inner Functions
