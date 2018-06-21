@@ -100,6 +100,10 @@
                        ?ST_SUSPENDING_AUTO |
                        ?ST_SUSPENDING_FORCE).
 
+%% Strings for displaying on the terminal
+-define(STR_SUSPENDING_AUTO, 'suspending(auto)').
+-define(STR_SUSPENDING_FORCE, 'suspending(force)').
+
 -record(mq_state, {
           id :: atom(),
           desc = [] :: string(),

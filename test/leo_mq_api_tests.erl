@@ -300,7 +300,7 @@ pub_sub_1() ->
 
     {ok, [Consumers_1|_]} = leo_mq_api:consumers(),
     ?debugVal(Consumers_1),
-    ?assertEqual(?ST_SUSPENDING_FORCE, leo_misc:get_value(?MQ_CNS_PROP_STATUS, Consumers_1#mq_state.state)),
+    ?assertEqual(?STR_SUSPENDING_FORCE, leo_misc:get_value(?MQ_CNS_PROP_STATUS, Consumers_1#mq_state.state)),
 
     %% resume the message consumption
     timer:sleep(timer:seconds(1)),

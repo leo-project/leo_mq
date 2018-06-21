@@ -196,13 +196,7 @@ status(Id) ->
             undefined ->
                 {?ST_IDLING, 0, 0, 0};
             {ok, {State, BatchOfMsgs, Interval, NumOfMsgs}} ->
-                State_1 = case (NumOfMsgs < 1) of
-                              true ->
-                                  ?ST_IDLING;
-                              false ->
-                                  State
-                          end,
-                {State_1, BatchOfMsgs, Interval, NumOfMsgs}
+                {State, BatchOfMsgs, Interval, NumOfMsgs}
         end,
     {ok, [{?MQ_CNS_PROP_NUM_OF_MSGS, NumOfMsgs_1},
           {?MQ_CNS_PROP_STATUS, State_2},
@@ -275,6 +269,9 @@ decrease(Id, SeqNo, SubNo) ->
 update_consumer_stats(PubId, State, BatchOfMsgs, Interval) ->
     {State_1, NumOfMsgs_1} =
         case leo_backend_db_api:status(?backend_db_info(PubId)) of
+            not_found when State =:= ?ST_SUSPENDING_AUTO orelse
+                           State =:= ?ST_SUSPENDING_FORCE ->
+                {State, 0};
             not_found ->
                 {?ST_IDLING, 0};
             DBStat ->
@@ -284,13 +281,24 @@ update_consumer_stats(PubId, State, BatchOfMsgs, Interval) ->
                 case NumOfMsgs > 0 of
                     true ->
                         {State, NumOfMsgs};
+                    false when State =:= ?ST_SUSPENDING_AUTO orelse
+                               State =:= ?ST_SUSPENDING_FORCE ->
+                        {State, NumOfMsgs};
                     false ->
                         {?ST_IDLING, NumOfMsgs}
                 end
         end,
     leo_misc:set_env(leo_mq, {state, PubId},
-                     {State_1, BatchOfMsgs, Interval, NumOfMsgs_1}).
+                     {state_to_str(State_1), BatchOfMsgs, Interval, NumOfMsgs_1}).
 
+%% @private
+state_to_str(?ST_SUSPENDING_AUTO) ->
+    ?STR_SUSPENDING_AUTO;
+state_to_str(?ST_SUSPENDING_FORCE) ->
+    ?STR_SUSPENDING_FORCE;
+state_to_str(Other) ->
+    %% Using the raw state value for displaying
+    Other.
 
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
