@@ -93,10 +93,16 @@
 
 -define(ST_IDLING, 'idling').
 -define(ST_RUNNING, 'running').
--define(ST_SUSPENDING, 'suspending').
+-define(ST_SUSPENDING_AUTO, 'suspending_auto').   %% Can move into this state by leo_watchdog
+-define(ST_SUSPENDING_FORCE, 'suspending_force'). %% Can move into this state by leofs_adm mq-suspend
 -type(state_of_mq() :: ?ST_IDLING |
                        ?ST_RUNNING |
-                       ?ST_SUSPENDING).
+                       ?ST_SUSPENDING_AUTO |
+                       ?ST_SUSPENDING_FORCE).
+
+%% Strings for displaying on the terminal
+-define(STR_SUSPENDING_AUTO, 'suspending(auto)').
+-define(STR_SUSPENDING_FORCE, 'suspending(force)').
 
 -record(mq_state, {
           id :: atom(),
