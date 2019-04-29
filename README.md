@@ -6,7 +6,7 @@
 
 * "leo_mq" is local message-queueing library which is used for including in Erlang's applications.
 * "leo_mq" uses [rebar](https://github.com/basho/rebar) as a build system. Makefile so that simply running "make" at the top level should work.
-* "leo_mq" requires Erlang R16B03-1 or later.
+* "leo_mq" requires Erlang/OTP 19.3 or later.
 
 ## Usage in Leo Project
 
@@ -15,4 +15,5 @@ It is used to fix inconsistent data wish asynchrounous processing.
 
 ## Sponsors
 
-LeoProject/LeoFS is sponsored by [Rakuten, Inc.](http://global.rakuten.com/corp/) and supported by [Rakuten Institute of Technology](http://rit.rakuten.co.jp/).
+* LeoProject/LeoFS was sponsored by [Rakuten, Inc.](http://global.rakuten.com/corp/) from 2012 to Dec of 2018.
+* LeoProject/LeoFS is sponsored by [Lions Data, Inc](https://lions-data.com/) from Jan of 2019.
