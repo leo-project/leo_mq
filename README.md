@@ -1,6 +1,6 @@
 # leo_mq
 
-[![Build Status](https://travis-ci.org/leo-project/leo_mq.svg?branch=develop)](https://travis-ci.org/leo-project/leo_mq)
+[![Build Status](https://travis-ci.org/leo-project/leo_mq.svg?branch=v2)](https://travis-ci.org/leo-project/leo_mq)
 
 ## Overview
 
