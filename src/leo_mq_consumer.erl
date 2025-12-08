@@ -25,7 +25,7 @@
 %%======================================================================
 -module(leo_mq_consumer).
 
--behaviour(gen_fsm).
+-behaviour(gen_statem).
 
 -include("leo_mq.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -40,23 +40,15 @@
          decrease/1
         ]).
 
-%% gen_fsm callbacks
+%% gen_statem callbacks
 -export([init/1,
-         handle_event/3,
-         handle_sync_event/4,
-         handle_info/3,
+         callback_mode/0,
+         handle_event/4,
          terminate/3,
-         code_change/4,
-         format_status/2]).
+         code_change/4]).
 
--export([idling/2, idling/3,
-         running/2, running/3,
-         suspending_auto/2, suspending_auto/3,
-         suspending_force/2, suspending_force/3,
-         defer_consume/3
-        ]).
+-export([defer_consume/3]).
 
--compile(nowarn_deprecated_type).
 -define(DEF_TIMEOUT, timer:seconds(5)).
 
 -record(event_info, {
@@ -90,8 +82,8 @@
                                                WorkerSeqNum::non_neg_integer()
                                                              ).
 start_link(Id, PublisherId, Props, WorkerSeqNum) ->
-    gen_fsm:start_link({local, Id}, ?MODULE,
-                       [Id, PublisherId, Props, WorkerSeqNum], []).
+    gen_statem:start_link({local, Id}, ?MODULE,
+                          [Id, PublisherId, Props, WorkerSeqNum], []).
 
 
 %% @doc Stop this server
@@ -102,7 +94,7 @@ stop(Id) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "stop/1"},
                            {line, ?LINE}, {body, Id}]),
-    gen_fsm:sync_send_all_state_event(Id, stop, ?DEF_TIMEOUT).
+    gen_statem:call(Id, stop, ?DEF_TIMEOUT).
 
 
 %% @doc Run the process
@@ -116,8 +108,8 @@ run(Id) ->
              ok | {error, any()} when Id::atom(),
                                       IsForceExec::boolean()).
 run(Id, IsForceExec) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_RUN,
-                                       is_force_exec = IsForceExec}).
+    gen_statem:cast(Id, #event_info{event = ?EVENT_RUN,
+                                    is_force_exec = IsForceExec}).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -125,7 +117,7 @@ run(Id, IsForceExec) ->
 -spec(suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 suspend(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_SUSPEND}).
+    gen_statem:cast(Id, #event_info{event = ?EVENT_SUSPEND}).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
@@ -133,7 +125,7 @@ suspend(Id) ->
 -spec(resume(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
-    gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
+    gen_statem:call(Id, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve the storage stats specfied by Id
@@ -141,25 +133,25 @@ resume(Id) ->
 -spec(state(Id) ->
              {ok, state_of_mq()} when Id::atom()).
 state(Id) ->
-    gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_STATE}, ?DEF_TIMEOUT).
+    gen_statem:call(Id, #event_info{event = ?EVENT_STATE}, ?DEF_TIMEOUT).
 
 
 %% @doc Increase comsumption processing
 -spec(increase(Id) ->
              ok when Id::atom()).
 increase(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR}).
+    gen_statem:cast(Id, #event_info{event = ?EVENT_INCR}).
 
 
 %% @doc Decrease comsumption processing
 -spec(decrease(Id) ->
              ok when Id::atom()).
 decrease(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR}).
+    gen_statem:cast(Id, #event_info{event = ?EVENT_DECR}).
 
 
 %%====================================================================
-%% GEN_SERVER CALLBACKS
+%% GEN_STATEM CALLBACKS
 %%====================================================================
 %% @doc Initiates the server
 %%
@@ -186,78 +178,45 @@ init([Id, PublisherId,
                             batch_of_msgs = BatchOfMsgs
                            }}.
 
-%% @doc Handle events
-handle_event(_Event, StateName, State) ->
-    {next_state, StateName, State}.
-
-%% @doc Handle 'status' event
-handle_sync_event(state, _From, StateName, State) ->
-    {reply, {ok, StateName}, StateName, State};
-
-%% @doc Handle 'stop' event
-handle_sync_event(stop, _From, _StateName, State) ->
-    {stop, shutdown, ok, State}.
-
-%% @doc Handling all non call/cast messages
-handle_info(timeout, StateName, State) ->
-    {next_state, StateName, State};
-handle_info(_Info, StateName, State) ->
-    {next_state, StateName, State}.
+%% @doc Return callback mode
+callback_mode() ->
+    handle_event_function.
 
 
-%% @doc This function is called by a gen_server when it is about to
-%%      terminate. It should be the opposite of Module:init/1 and do any necessary
-%%      cleaning up. When it returns, the gen_server terminates with Reason.
-%% The return value is ignored.
-terminate(Reason, _StateName, _State) ->
-    error_logger:info_msg("~p,~p,~p,~p~n",
-                          [{module, ?MODULE_STRING}, {function, "terminate/2"},
-                           {line, ?LINE}, {body, Reason}]),
-    ok.
-
-%% @doc Convert process state when code is changed
-code_change(_OldVsn, StateName, State, _Extra) ->
-    {ok, StateName, State}.
-
-%% @doc This function is called by a gen_fsm when it should update
-%%      its internal state data during a release upgrade/downgrade
-format_status(_Opt, [_PDict, State]) ->
-    State.
-
-
-%%====================================================================
-%% CALLBACKS
-%%====================================================================
-%% @doc State of 'idle'
+%% @doc Unified event handler for gen_statem (handle_event_function mode)
 %%
--spec(idling(EventInfo, From, State) ->
-             {next_state, ?ST_IDLING | ?ST_RUNNING, State}
-                 when EventInfo::#event_info{},
-                      From::{pid(), atom()},
-                      State::#state{}).
-idling(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
-    gen_fsm:reply(From, {ok, Status}),
-    {next_state, ?ST_IDLING, State#state{status = Status}};
-idling(_, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
-    {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING}}.
+%% Handle 'stop' call from any state
+handle_event({call, From}, stop, _StateName, State) ->
+    {stop_and_reply, shutdown, [{reply, From, ok}], State};
 
--spec(idling(EventInfo, State) ->
-             {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
-                                                  State::#state{}).
-idling(#event_info{event = ?EVENT_RUN}, #state{id = Id,
-                                               publisher_id = PublisherId,
-                                               batch_of_msgs = BatchOfMsgs,
-                                               interval = Interval} = State) ->
+%% Handle 'state' call from any state
+handle_event({call, From}, #event_info{event = ?EVENT_STATE}, StateName, #state{status = Status} = State) ->
+    {next_state, StateName, State#state{status = Status}, [{reply, From, {ok, Status}}]};
+
+%%--------------------------------------------------------------------
+%% IDLING state handlers
+%%--------------------------------------------------------------------
+%% idling + call (sync)
+handle_event({call, From}, _, ?ST_IDLING, State) ->
+    {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING}, [{reply, From, {error, badstate}}]};
+
+%% idling + cast (async) - RUN event
+handle_event(cast, #event_info{event = ?EVENT_RUN}, ?ST_IDLING,
+             #state{id = Id,
+                    publisher_id = PublisherId,
+                    batch_of_msgs = BatchOfMsgs,
+                    interval = Interval} = State) ->
     NextStatus = ?ST_RUNNING,
     ok = run(Id),
     ok = leo_mq_api:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = ?ST_IDLING}};
-idling(#event_info{event = ?EVENT_DECR},
-       #state{mq_properties = MQProps,
-              batch_of_msgs = BatchOfMsgs,
-              interval = Interval} = State) ->
+
+%% idling + cast (async) - DECR event
+handle_event(cast, #event_info{event = ?EVENT_DECR}, ?ST_IDLING,
+             #state{mq_properties = MQProps,
+                    batch_of_msgs = BatchOfMsgs,
+                    interval = Interval} = State) ->
     #mq_properties{max_interval = MaxInterval} = MQProps,
     {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
     BatchOfMsgs_1 = decr_batch_procs_fun(BatchOfMsgs, StepBatchOfMsgs),
@@ -265,27 +224,34 @@ idling(#event_info{event = ?EVENT_DECR},
     {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING,
                                          batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1}};
-idling(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
-                                                   batch_of_msgs = BatchOfMsgs,
-                                                   interval = Interval} = State) ->
+
+%% idling + cast (async) - SUSPEND event
+handle_event(cast, #event_info{event = ?EVENT_SUSPEND}, ?ST_IDLING,
+             #state{publisher_id = PublisherId,
+                    batch_of_msgs = BatchOfMsgs,
+                    interval = Interval} = State) ->
     NextStatus = ?ST_SUSPENDING_FORCE,
     ok = leo_mq_api:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = NextStatus}};
-idling(_, State) ->
-    {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING}}.
 
+%% idling + cast (async) - catch all
+handle_event(cast, _, ?ST_IDLING, State) ->
+    {next_state, ?ST_IDLING, State#state{status = ?ST_IDLING}};
 
-%% @doc State of 'running'
--spec(running(EventInfo, State) ->
-             {next_state, ?ST_RUNNING, State}
-                 when EventInfo::#event_info{},
-                      State::#state{}).
-running(#event_info{event = ?EVENT_RUN,
-                    is_force_exec = IsForceExec}, #state{id = Id,
-                                                         publisher_id = PublisherId,
-                                                         batch_of_msgs = BatchOfMsgs,
-                                                         interval = Interval} = State) ->
+%%--------------------------------------------------------------------
+%% RUNNING state handlers
+%%--------------------------------------------------------------------
+%% running + call (sync)
+handle_event({call, From}, _, ?ST_RUNNING, State) ->
+    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}, [{reply, From, {error, badstate}}]};
+
+%% running + cast (async) - RUN event
+handle_event(cast, #event_info{event = ?EVENT_RUN, is_force_exec = IsForceExec}, ?ST_RUNNING,
+             #state{id = Id,
+                    publisher_id = PublisherId,
+                    batch_of_msgs = BatchOfMsgs,
+                    interval = Interval} = State) ->
     {NextStatus, State_2} =
         case catch consume(State, IsForceExec) of
             %% Execute the data-compaction repeatedly
@@ -302,14 +268,14 @@ running(#event_info{event = ?EVENT_RUN,
             not_found ->
                 {_,State_1} = after_execute(ok, State),
                 {?ST_IDLING, State_1};
-            %% An unxepected error has occured
+            %% An unexpected error has occurred
             {'EXIT', Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING, State_1};
             {error, short_interval = Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_RUNNING, State_1};
-            %% An epected error has occured
+            %% An expected error has occurred
             {error, Cause} ->
                 {_,State_1} = after_execute({error, Cause}, State),
                 {?ST_IDLING, State_1}
@@ -319,20 +285,22 @@ running(#event_info{event = ?EVENT_RUN,
     {next_state, NextStatus, State_2#state{status = NextStatus,
                                            prev_proc_time = leo_date:clock()}};
 
-running(#event_info{event = ?EVENT_SUSPEND}, #state{publisher_id = PublisherId,
-                                                    batch_of_msgs = BatchOfMsgs,
-                                                    interval = Interval} = State) ->
+%% running + cast (async) - SUSPEND event
+handle_event(cast, #event_info{event = ?EVENT_SUSPEND}, ?ST_RUNNING,
+             #state{publisher_id = PublisherId,
+                    batch_of_msgs = BatchOfMsgs,
+                    interval = Interval} = State) ->
     NextStatus = ?ST_SUSPENDING_FORCE,
     ok = leo_mq_api:update_consumer_stats(
            PublisherId, NextStatus, BatchOfMsgs, Interval),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-
-running(#event_info{event = ?EVENT_INCR},
-        #state{publisher_id = PublisherId,
-               mq_properties = MQProps,
-               interval = Interval,
-               batch_of_msgs = BatchOfMsgs} = State) ->
+%% running + cast (async) - INCR event
+handle_event(cast, #event_info{event = ?EVENT_INCR}, ?ST_RUNNING,
+             #state{publisher_id = PublisherId,
+                    mq_properties = MQProps,
+                    interval = Interval,
+                    batch_of_msgs = BatchOfMsgs} = State) ->
     %% Retrieving the new interval and # of batch msgs
     #mq_properties{max_batch_of_msgs = MaxBatchOfMsgs} = MQProps,
     {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
@@ -348,11 +316,12 @@ running(#event_info{event = ?EVENT_INCR},
                                          batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1}};
 
-running(#event_info{event = ?EVENT_DECR},
-        #state{publisher_id = PublisherId,
-               mq_properties = MQProps,
-               batch_of_msgs = BatchOfMsgs,
-               interval = Interval} = State) ->
+%% running + cast (async) - DECR event
+handle_event(cast, #event_info{event = ?EVENT_DECR}, ?ST_RUNNING,
+             #state{publisher_id = PublisherId,
+                    mq_properties = MQProps,
+                    batch_of_msgs = BatchOfMsgs,
+                    interval = Interval} = State) ->
     %% Modify the interval
     #mq_properties{max_interval = MaxInterval} = MQProps,
     {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
@@ -374,31 +343,34 @@ running(#event_info{event = ?EVENT_DECR},
                                          interval = Interval_1,
                                          status = NextStatus}};
 
-running(_, State) ->
-    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}}.
-
--spec(running( _, _, #state{}) ->
-             {next_state, ?ST_RUNNING, #state{}}).
-running(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
-    gen_fsm:reply(From, {ok, Status}),
+%% running + cast (async) - catch all
+handle_event(cast, _, ?ST_RUNNING, State) ->
     {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}};
-running(_, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
-    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}}.
 
+%%--------------------------------------------------------------------
+%% SUSPENDING_AUTO state handlers
+%%--------------------------------------------------------------------
+%% suspending_auto + call (sync) - RESUME event
+handle_event({call, From}, #event_info{event = ?EVENT_RESUME}, ?ST_SUSPENDING_AUTO,
+             #state{id = Id,
+                    publisher_id = PublisherId,
+                    batch_of_msgs = BatchOfMsgs,
+                    interval = Interval} = State) ->
+    ok = run(Id),
+    ok = leo_mq_api:update_consumer_stats(PublisherId, ?ST_RUNNING, BatchOfMsgs, Interval),
+    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}, [{reply, From, ok}]};
 
-%% @doc State of 'suspend_auto'
-%%
--spec(suspending_auto(EventInfo, State) ->
-             {next_state, ?ST_SUSPENDING_AUTO, State}
-                 when EventInfo::#event_info{},
-                      State::#state{}).
-suspending_auto(#event_info{event = ?EVENT_INCR},
-           #state{id = Id,
-                  publisher_id = PublisherId,
-                  mq_properties = MQProps,
-                  batch_of_msgs = BatchOfMsgs,
-                  interval = Interval} = State) ->
+%% suspending_auto + call (sync) - catch all
+handle_event({call, From}, _, ?ST_SUSPENDING_AUTO, State) ->
+    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}, [{reply, From, {error, badstate}}]};
+
+%% suspending_auto + cast (async) - INCR event
+handle_event(cast, #event_info{event = ?EVENT_INCR}, ?ST_SUSPENDING_AUTO,
+             #state{id = Id,
+                    publisher_id = PublisherId,
+                    mq_properties = MQProps,
+                    batch_of_msgs = BatchOfMsgs,
+                    interval = Interval} = State) ->
     %% Modify the item
     #mq_properties{max_batch_of_msgs = MaxBatchOfMsgs} = MQProps,
     {ok, {StepBatchOfMsgs, StepInterval}} = ?step_comsumption_values(MQProps),
@@ -415,57 +387,54 @@ suspending_auto(#event_info{event = ?EVENT_INCR},
     {next_state, NextStatus, State#state{status = NextStatus,
                                          batch_of_msgs = BatchOfMsgs_1,
                                          interval = Interval_1}};
-suspending_auto(_, State) ->
-    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}}.
 
--spec(suspending_auto(EventInfo, From, State) ->
-             {next_state, ?ST_SUSPENDING_AUTO | ?ST_RUNNING, State}
-                 when EventInfo::#event_info{},
-                      From::{pid(),Tag::atom()},
-                      State::#state{}).
-suspending_auto(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
-                                                            publisher_id = PublisherId,
-                                                            batch_of_msgs = BatchOfMsgs,
-                                                            interval = Interval} = State) ->
-    gen_fsm:reply(From, ok),
-    ok = run(Id),
-    ok = leo_mq_api:update_consumer_stats(PublisherId, ?ST_RUNNING, BatchOfMsgs, Interval),
-    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}};
-suspending_auto(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
-    gen_fsm:reply(From, {ok, Status}),
+%% suspending_auto + cast (async) - catch all
+handle_event(cast, _, ?ST_SUSPENDING_AUTO, State) ->
     {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}};
-suspending_auto(_Other, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
-    {next_state, ?ST_SUSPENDING_AUTO, State#state{status = ?ST_SUSPENDING_AUTO}}.
 
-%% @doc State of 'suspending_force'
-%%
--spec(suspending_force(EventInfo, State) ->
-             {next_state, ?ST_SUSPENDING_FORCE, State}
-                 when EventInfo::#event_info{},
-                      State::#state{}).
-suspending_force(_, State) ->
-    {next_state, ?ST_SUSPENDING_FORCE, State#state{status = ?ST_SUSPENDING_FORCE}}.
-
--spec(suspending_force(EventInfo, From, State) ->
-             {next_state, ?ST_SUSPENDING_FORCE| ?ST_RUNNING, State}
-                 when EventInfo::#event_info{},
-                      From::{pid(),Tag::atom()},
-                      State::#state{}).
-suspending_force(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
-                                                            publisher_id = PublisherId,
-                                                            batch_of_msgs = BatchOfMsgs,
-                                                            interval = Interval} = State) ->
-    gen_fsm:reply(From, ok),
+%%--------------------------------------------------------------------
+%% SUSPENDING_FORCE state handlers
+%%--------------------------------------------------------------------
+%% suspending_force + call (sync) - RESUME event
+handle_event({call, From}, #event_info{event = ?EVENT_RESUME}, ?ST_SUSPENDING_FORCE,
+             #state{id = Id,
+                    publisher_id = PublisherId,
+                    batch_of_msgs = BatchOfMsgs,
+                    interval = Interval} = State) ->
     ok = run(Id),
     ok = leo_mq_api:update_consumer_stats(PublisherId, ?ST_RUNNING, BatchOfMsgs, Interval),
-    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}};
-suspending_force(#event_info{event = ?EVENT_STATE}, From, #state{status = Status} = State) ->
-    gen_fsm:reply(From, {ok, Status}),
+    {next_state, ?ST_RUNNING, State#state{status = ?ST_RUNNING}, [{reply, From, ok}]};
+
+%% suspending_force + call (sync) - catch all
+handle_event({call, From}, _, ?ST_SUSPENDING_FORCE, State) ->
+    {next_state, ?ST_SUSPENDING_FORCE, State#state{status = ?ST_SUSPENDING_FORCE}, [{reply, From, {error, badstate}}]};
+
+%% suspending_force + cast (async) - catch all
+handle_event(cast, _, ?ST_SUSPENDING_FORCE, State) ->
     {next_state, ?ST_SUSPENDING_FORCE, State#state{status = ?ST_SUSPENDING_FORCE}};
-suspending_force(_Other, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
-    {next_state, ?ST_SUSPENDING_FORCE, State#state{status = ?ST_SUSPENDING_FORCE}}.
+
+%%--------------------------------------------------------------------
+%% Info handlers (for timeout etc.)
+%%--------------------------------------------------------------------
+handle_event(info, timeout, StateName, State) ->
+    {next_state, StateName, State};
+handle_event(info, _Info, StateName, State) ->
+    {next_state, StateName, State}.
+
+
+%% @doc This function is called by a gen_statem when it is about to
+%%      terminate. It should be the opposite of Module:init/1 and do any necessary
+%%      cleaning up. When it returns, the gen_statem terminates with Reason.
+%% The return value is ignored.
+terminate(Reason, _StateName, _State) ->
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "terminate/3"},
+                           {line, ?LINE}, {body, Reason}]),
+    ok.
+
+%% @doc Convert process state when code is changed
+code_change(_OldVsn, StateName, State, _Extra) ->
+    {ok, StateName, State}.
 
 %%--------------------------------------------------------------------
 %% Inner Functions
@@ -560,7 +529,7 @@ defer_consume(Id, MaxInterval, MinInterval) ->
                            MaxInterval::non_neg_integer()).
 interval(Id, Interval, MaxInterval) when Interval < MaxInterval ->
     Interval_1 = erlang:phash2(Id, MaxInterval),
-    Interval_2 = erlang:round((Interval_1 + random:uniform(MaxInterval))/2),
+    Interval_2 = erlang:round((Interval_1 + rand:uniform(MaxInterval))/2),
     Interval_3 = case (Interval_2 < Interval) of
                      true ->
                          Interval + erlang:phash2(Id, Interval);
