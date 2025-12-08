@@ -150,12 +150,15 @@
         list_to_atom(
           lists:append([atom_to_list(_PubId), ?DEF_INVOKER_SUFFIX]))).
 
--define(publisher_id(_ConsumerId),
+-define(publisher_id(_ConsumerId__),
         begin
-            _StrId = atom_to_list(_ConsumerId),
-            list_to_atom(
-              string:substr(_StrId, 1,
-                            string:str(_StrId, ?DEF_CONSUMER_SUFFIX) - 1))
+            _StrId__ = atom_to_list(_ConsumerId__),
+            case string:split(_StrId__, ?DEF_CONSUMER_SUFFIX) of
+                [_Prefix__, _Suffix__ | _] ->
+                    list_to_atom(_Prefix__);
+                _ ->
+                    _ConsumerId__
+            end
         end).
 
 -define(publisher_id(_PubId,_SeqNo),
@@ -180,10 +183,10 @@
 -define(backend_db_info(Id, RootPath),
         begin
             MQDBMessageId = list_to_atom(atom_to_list(Id) ++ "_message"),
-            NewRootPath = case (string:len(RootPath) == string:rstr(RootPath, "/")) of
-                              true ->
+            NewRootPath = case lists:last(RootPath) of
+                              $/ ->
                                   RootPath;
-                              false ->
+                              _ ->
                                   RootPath ++ "/"
                           end,
             MQDBMessagePath = NewRootPath ++ ?DEF_DB_PATH_MESSAGE,

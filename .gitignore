@@ -7,3 +7,5 @@ leo_mq.dot
 leo_mq.png
 .rebar/
 doc/
+_build/
+queue/

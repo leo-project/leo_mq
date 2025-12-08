@@ -179,8 +179,10 @@ init([Id, WorkerSeqNum, #mq_properties{db_name = DBName,
             end,
 
             IdStr = atom_to_list(Id),
-            IdStr_1 = string:substr(IdStr, 1,
-                                    string:rstr(IdStr, "_") - 1),
+            IdStr_1 = case string:split(IdStr, "_", trailing) of
+                          [Prefix, _Suffix] -> Prefix;
+                          [_] -> IdStr
+                      end,
             SeqNum = WorkerSeqNum - 1,
 
             {ok, #state{id = Id,
@@ -423,12 +425,11 @@ close_db(InstanseName) ->
 close_db([],_) ->
     ok;
 close_db([{Id,_Pid, worker, ['leo_backend_db_server' = Mod|_]}|T], InstanceName) ->
-    case (string:str(atom_to_list(Id),
-                     atom_to_list(InstanceName)) > 0) of
-        true ->
-            ok = Mod:close(Id);
-        false ->
-            void
+    case string:find(atom_to_list(Id), atom_to_list(InstanceName)) of
+        nomatch ->
+            void;
+        _ ->
+            ok = Mod:close(Id)
     end,
     close_db(T, InstanceName);
 close_db([_|T], InstanceName) ->
